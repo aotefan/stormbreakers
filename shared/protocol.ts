@@ -12,6 +12,7 @@ export interface PlayerInput {
   throttle: number;
   turn: number;
   dragTarget?: Vec2 | null;
+  stop?: boolean;
   boost?: boolean;
   repair?: boolean;
   supply?: boolean;
