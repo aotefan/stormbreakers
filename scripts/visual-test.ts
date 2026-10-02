@@ -59,6 +59,10 @@ async function main() {
   const ctxB = await browser.newContext({ viewport: { width: 900, height: 700 } });
   const a = await ctxA.newPage();
   const b = await ctxB.newPage();
+  const sentFrames: string[] = [];
+  a.on('websocket', (socket) => {
+    socket.on('framesent', (event) => sentFrames.push(String(event.payload)));
+  });
   await a.goto(baseUrl);
   await a.getByTestId('nickname').fill('BrowserA');
   await a.getByTestId('create-room').click();
@@ -77,6 +81,21 @@ async function main() {
     const bText = await b.getByTestId('scoreboard').textContent();
     return !!aText?.includes('BrowserB') && !!bText?.includes('BrowserA');
   }, 'two browser contexts show each other in the same room');
+  await dragOwnShip(a);
+  const inputFrames = sentFrames
+    .map((payload) => {
+      try {
+        return JSON.parse(payload) as { type?: string; input?: { dragTarget?: unknown; throttle?: number; turn?: number } };
+      } catch {
+        return {};
+      }
+    })
+    .filter((message) => message.type === 'input');
+  assert(inputFrames.some((message) => !!message.input?.dragTarget), 'online drag sends predicted drag target');
+  assert(
+    inputFrames.slice(-12).some((message) => message.input?.dragTarget === null && message.input.throttle === 0 && message.input.turn === 0),
+    'online drag release sends immediate stop input',
+  );
   await a.screenshot({ path: `${outDir}/multiplayer-a.png`, fullPage: false });
   await b.screenshot({ path: `${outDir}/multiplayer-b.png`, fullPage: false });
 
@@ -107,33 +126,51 @@ async function dragOwnShip(page: Page) {
     assert(!!viewport, `canvas exists for drag: ${JSON.stringify(boxes)}`);
     box = { x: 0, y: 0, width: viewport.width, height: viewport.height };
   }
-  const cx = box.x + box.width / 2;
-  const cy = box.y + box.height / 2;
-  await page.evaluate(`(() => {
-    const cx = ${JSON.stringify(cx)};
-    const cy = ${JSON.stringify(cy)};
-    const canvas = document.querySelector('[data-testid="storm-scene"] canvas');
-    if (!canvas) throw new Error('canvas missing');
-    const fire = (type, x, y, pointerId) => {
-      canvas.dispatchEvent(new PointerEvent(type, {
-        bubbles: true,
-        cancelable: true,
-        clientX: x,
-        clientY: y,
-        pointerId,
-        pointerType: 'touch',
-        isPrimary: pointerId === 41
-      }));
-    };
-    fire('pointerdown', cx, cy, 41);
-    fire('pointermove', cx + 80, cy + 30, 41);
-    fire('pointerdown', cx + 180, cy, 42);
-    fire('pointerup', cx + 180, cy, 42);
-    fire('pointerup', cx + 80, cy + 30, 41);
-  })()`);
-  await page.waitForTimeout(250);
+  const beforeRight = await page.getByTestId('right-cooldown').first().textContent({ timeout: 5000 });
+  const beforeScroll = await page.evaluate('window.scrollY');
+  const candidates = [
+    [0.5, 0.5],
+    [0.5, 0.62],
+    [0.35, 0.68],
+    [0.65, 0.58],
+    [0.28, 0.46],
+  ];
+  let afterRight = beforeRight;
+  for (const [xRatio, yRatio] of candidates) {
+    const cx = box.x + box.width * xRatio;
+    const cy = box.y + box.height * yRatio;
+    await page.evaluate(`(() => {
+      const cx = ${JSON.stringify(cx)};
+      const cy = ${JSON.stringify(cy)};
+      const canvas = document.querySelector('[data-testid="storm-scene"] canvas');
+      if (!canvas) throw new Error('canvas missing');
+      const fire = (type, x, y, pointerId) => {
+        canvas.dispatchEvent(new PointerEvent(type, {
+          bubbles: true,
+          cancelable: true,
+          clientX: x,
+          clientY: y,
+          pointerId,
+          pointerType: 'touch',
+          isPrimary: pointerId === 41
+        }));
+      };
+      fire('pointerdown', cx, cy, 41);
+      const fireX = Math.min(window.innerWidth - 20, cx + Math.max(120, window.innerWidth * 0.24));
+      fire('pointermove', cx + 80, cy + 30, 41);
+      fire('pointerdown', fireX, cy, 42);
+      fire('pointerup', fireX, cy, 42);
+      fire('pointerup', cx + 80, cy + 30, 41);
+    })()`);
+    await page.waitForTimeout(350);
+    afterRight = await page.getByTestId('right-cooldown').first().textContent({ timeout: 5000 });
+    if (beforeRight !== afterRight && !!afterRight?.match(/R\s+(?!OK)/)) break;
+  }
   const timer = await page.locator('.top-center strong').textContent();
   assert(!!timer, 'timer remains visible after drag release');
+  const afterScroll = await page.evaluate('window.scrollY');
+  assert(beforeRight !== afterRight && !!afterRight?.match(/R\s+(?!OK)/), `second touch fires while dragging: ${beforeRight} -> ${afterRight}`);
+  assert(beforeScroll === 0 && afterScroll === 0, 'touch drag does not scroll the page');
 }
 
 async function waitForHealth() {

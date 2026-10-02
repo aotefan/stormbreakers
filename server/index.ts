@@ -93,14 +93,10 @@ function handleMessage(ws: WebSocket, message: ClientMessage): void {
     return;
   }
   if (message.type === 'pause') {
-    if (!existing) return;
-    const room = rooms.get(existing.roomCode);
-    if (!room) return;
-    room.state.running = !message.paused;
     return;
   }
   if (message.type === 'debug') {
-    if (process.env.NODE_ENV === 'production' || !existing) return;
+    if (process.env.NODE_ENV !== 'test' || !existing) return;
     const room = rooms.get(existing.roomCode);
     if (!room) return;
     if (message.command === 'fastEnd') room.state.now = Math.max(0, room.state.duration - 2);

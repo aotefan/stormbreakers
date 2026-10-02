@@ -269,7 +269,7 @@ function BattleScreen({ session, onExit, labels, quality, volume, muted }: Battl
     (event: { type: 'start' | 'move' | 'end'; pointerId: number; world?: Vec2; clientX: number; clientY: number }) => {
       if (!player || !event.world) return;
       if (event.type === 'start') {
-        const nearOwnShip = Math.hypot(event.world.x - player.x, event.world.z - player.z) < 9;
+        const nearOwnShip = Math.hypot(event.world.x - player.x, event.world.z - player.z) < 18;
         if (dragPointer.current === null && nearOwnShip) {
           dragPointer.current = event.pointerId;
           setDragTarget(event.world);
@@ -304,7 +304,9 @@ function BattleScreen({ session, onExit, labels, quality, volume, muted }: Battl
         <strong>{formatTime(battle.state?.timeLeft ?? 180)}</strong>
       </section>
       <section className="hud top-right">
-        <button data-testid="pause" onClick={() => battle.setPaused(!battle.paused)}>{battle.paused ? labels.resume : labels.pause}</button>
+        {session.kind === 'practice' ? (
+          <button data-testid="pause" onClick={() => battle.setPaused(!battle.paused)}>{battle.paused ? labels.resume : labels.pause}</button>
+        ) : null}
         <button className="ghost" onClick={onExit}>{labels.quit}</button>
         <span>{session.kind === 'practice' && battle.paused ? labels.soloFrozen : session.kind === 'online' ? labels.onlineRunning : ''}</span>
       </section>
@@ -331,10 +333,10 @@ function BattleScreen({ session, onExit, labels, quality, volume, muted }: Battl
           <button onPointerDown={() => pulse('fireRight')}>E</button>
         </div>
         <div className="cooldowns">
-          <span>L {cool(player?.cooldownLeft)}</span>
+          <span data-testid="left-cooldown">L {cool(player?.cooldownLeft)}</span>
           <span>{labels.boost} {cool(player?.boostCooldown)}</span>
           <span>{labels.repair} {cool(player?.repairCooldown)}</span>
-          <span>R {cool(player?.cooldownRight)}</span>
+          <span data-testid="right-cooldown">R {cool(player?.cooldownRight)}</span>
         </div>
       </section>
 
