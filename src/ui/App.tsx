@@ -87,7 +87,7 @@ const text = {
 
 export default function App() {
   const [lang, setLang] = useState<Lang>('zh');
-  const [nickname, setNickname] = useState('Tina');
+  const [nickname, setNickname] = useState('孙警醒');
   const [mode, setMode] = useState<Mode>('battle');
   const [difficulty, setDifficulty] = useState<Difficulty>('normal');
   const [quality, setQuality] = useState<Quality>('medium');
