@@ -1,6 +1,8 @@
 import { useEffect, useRef } from 'react';
 import * as THREE from 'three';
 import type { BoatState, GameEvent, GameState, Quality, Vec2 } from '../../shared/protocol';
+import { createWarship } from './warship';
+import { createHorizon, createOcean, createRockIsland } from './ocean';
 
 interface Props {
   state: GameState | null;
@@ -53,26 +55,28 @@ export default function StormScene({ state, boatId, quality, dragTarget, onWorld
     const mount = mountRef.current;
     if (!mount) return;
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color('#0b3c50');
-    scene.fog = new THREE.Fog('#0b3c50', 55, 150);
+    scene.background = new THREE.Color('#b4d6dc');
+    scene.fog = new THREE.Fog('#a8cecc', 130, 280);
     const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 500);
-    camera.position.set(0, 72, 72);
+    camera.position.set(0, 55, 60);
     camera.lookAt(0, 0, 0);
     const renderer = new THREE.WebGLRenderer({ antialias: quality !== 'low', alpha: false, powerPreference: 'high-performance' });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, quality === 'high' ? 2 : 1.35));
     renderer.shadowMap.enabled = quality === 'high';
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.05;
     mount.appendChild(renderer.domElement);
 
-    const hemi = new THREE.HemisphereLight('#d8f5ff', '#1b4a42', 1.6);
+    const hemi = new THREE.HemisphereLight('#d8f5ff', '#35575c', 1.9);
     scene.add(hemi);
-    const sun = new THREE.DirectionalLight('#ffe2a4', 2.4);
-    sun.position.set(45, 60, 18);
+    const sun = new THREE.DirectionalLight('#fff1d1', 2.3);
+    sun.position.set(-45, 70, 30);
     sun.castShadow = true;
     scene.add(sun);
 
-    const water = makeWater();
+    const water = createOcean();
     scene.add(water);
-    scene.add(makeSky());
+    scene.add(createHorizon());
 
     const targetMarker = new THREE.Mesh(
       new THREE.RingGeometry(1.8, 2.4, 48),
@@ -146,14 +150,7 @@ export default function StormScene({ state, boatId, quality, dragTarget, onWorld
     let raf = 0;
     const animate = (time: number) => {
       raf = requestAnimationFrame(animate);
-      runtime.water.position.y = Math.sin(time * 0.0012) * 0.18;
-      const positions = (runtime.water.geometry as THREE.PlaneGeometry).attributes.position;
-      for (let i = 0; i < positions.count; i += 1) {
-        const x = positions.getX(i);
-        const y = positions.getY(i);
-        positions.setZ(i, Math.sin(x * 0.11 + time * 0.0017) * 0.45 + Math.cos(y * 0.13 + time * 0.0012) * 0.35);
-      }
-      positions.needsUpdate = true;
+      (runtime.water.material as THREE.ShaderMaterial).uniforms.uTime.value = time * .001;
       for (const particle of runtime.particles) {
         particle.life -= 0.016;
         particle.mesh.position.x += particle.vx * 0.016;
@@ -179,6 +176,20 @@ export default function StormScene({ state, boatId, quality, dragTarget, onWorld
       renderer.domElement.removeEventListener('pointermove', pointerMove);
       renderer.domElement.removeEventListener('pointerup', pointerEnd);
       renderer.domElement.removeEventListener('pointercancel', pointerEnd);
+      const geometries = new Set<THREE.BufferGeometry>();
+      const materials = new Set<THREE.Material>();
+      const textures = new Set<THREE.Texture>();
+      scene.traverse((object) => {
+        if (!(object instanceof THREE.Mesh || object instanceof THREE.Line)) return;
+        geometries.add(object.geometry);
+        for (const material of Array.isArray(object.material) ? object.material : [object.material]) {
+          materials.add(material);
+          for (const value of Object.values(material)) if (value instanceof THREE.Texture) textures.add(value);
+        }
+      });
+      textures.forEach((texture) => texture.dispose());
+      materials.forEach((material) => material.dispose());
+      geometries.forEach((geometry) => geometry.dispose());
       mount.removeChild(renderer.domElement);
       renderer.dispose();
     };
@@ -198,7 +209,7 @@ export default function StormScene({ state, boatId, quality, dragTarget, onWorld
     }
     const player = state.boats.find((boat) => boat.id === boatId);
     if (player) {
-      runtime.camera.position.lerp(new THREE.Vector3(player.x, 70, player.z + 70), 0.045);
+      runtime.camera.position.lerp(new THREE.Vector3(player.x, 55, player.z + 60), 0.045);
       runtime.camera.lookAt(player.x, 0, player.z);
     }
   }, [boatId, quality, state]);
@@ -213,135 +224,34 @@ export default function StormScene({ state, boatId, quality, dragTarget, onWorld
   return <div className="scene" ref={mountRef} data-testid="storm-scene" />;
 }
 
-function makeWater(): THREE.Mesh {
-  const canvas = document.createElement('canvas');
-  canvas.width = 256;
-  canvas.height = 256;
-  const ctx = canvas.getContext('2d')!;
-  ctx.fillStyle = '#063848';
-  ctx.fillRect(0, 0, 256, 256);
-  for (let i = 0; i < 80; i += 1) {
-    ctx.strokeStyle = `rgba(132, 221, 223, ${0.08 + Math.random() * 0.12})`;
-    ctx.lineWidth = 1 + Math.random() * 2;
-    ctx.beginPath();
-    const y = Math.random() * 256;
-    ctx.moveTo(Math.random() * 80, y);
-    ctx.bezierCurveTo(80, y - 18, 150, y + 18, 260, y);
-    ctx.stroke();
-  }
-  const texture = new THREE.CanvasTexture(canvas);
-  texture.wrapS = THREE.RepeatWrapping;
-  texture.wrapT = THREE.RepeatWrapping;
-  texture.repeat.set(8, 8);
-  const geometry = new THREE.PlaneGeometry(240, 240, 90, 90);
-  geometry.rotateX(-Math.PI / 2);
-  return new THREE.Mesh(
-    geometry,
-    new THREE.MeshStandardMaterial({ color: '#0a5362', roughness: 0.38, metalness: 0.22, map: texture }),
-  );
-}
-
-function makeSky(): THREE.Group {
-  const group = new THREE.Group();
-  for (let i = 0; i < 14; i += 1) {
-    const cloud = new THREE.Group();
-    const mat = new THREE.MeshStandardMaterial({ color: '#f2eadc', roughness: 0.9, transparent: true, opacity: 0.86 });
-    for (let j = 0; j < 5; j += 1) {
-      const puff = new THREE.Mesh(new THREE.SphereGeometry(4 + Math.random() * 3, 14, 10), mat);
-      puff.position.set(j * 4 - 8, Math.random() * 2, Math.random() * 2);
-      puff.scale.z = 0.55;
-      cloud.add(puff);
-    }
-    cloud.position.set(-85 + Math.random() * 170, 28 + Math.random() * 28, -85 + Math.random() * 170);
-    group.add(cloud);
-  }
-  return group;
-}
 
 function makeBoat(boat: BoatState): BoatRender {
-  const group = new THREE.Group();
-  const hullMat = new THREE.MeshStandardMaterial({ color: '#7a4127', roughness: 0.72, metalness: 0.03 });
-  const deckMat = new THREE.MeshStandardMaterial({ color: '#b77445', roughness: 0.75 });
-  const trimMat = new THREE.MeshStandardMaterial({ color: boat.color, roughness: 0.4 });
-  const hull = new THREE.Mesh(new THREE.BoxGeometry(3.9, 1.35, 8.5), hullMat);
-  hull.position.y = 1;
-  hull.scale.x = 0.75;
-  group.add(hull);
-  const bow = new THREE.Mesh(new THREE.ConeGeometry(2.9, 3.2, 4), hullMat);
-  bow.rotation.y = Math.PI / 4;
-  bow.position.set(0, 1, 5.2);
-  group.add(bow);
-  const deck = new THREE.Mesh(new THREE.BoxGeometry(3.2, 0.22, 7.1), deckMat);
-  deck.position.y = 1.8;
-  group.add(deck);
-  const rail = new THREE.Mesh(new THREE.BoxGeometry(4.15, 0.22, 0.18), trimMat);
-  rail.position.set(0, 2.12, -3.7);
-  group.add(rail);
-
-  const mastMat = new THREE.MeshStandardMaterial({ color: '#55311f', roughness: 0.8 });
-  const sailTex = tinaSailTexture(boat.color);
-  const sailMat = new THREE.MeshStandardMaterial({ map: sailTex, roughness: 0.65, side: THREE.DoubleSide, transparent: true });
-  [-2.8, 0, 2.8].forEach((z, i) => {
-    const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.12, 7.8, 10), mastMat);
-    mast.position.set(0, 5.3, z);
-    group.add(mast);
-    const sail = new THREE.Mesh(new THREE.PlaneGeometry(i === 1 ? 3.1 : 2.45, i === 1 ? 3.9 : 3.1), sailMat);
-    sail.position.set(0.08, 5.35, z + 0.35);
-    sail.rotation.y = Math.PI / 2;
-    group.add(sail);
-  });
-
-  const hp = new THREE.Mesh(new THREE.BoxGeometry(4.2, 0.18, 0.18), new THREE.MeshBasicMaterial({ color: '#7df2b7' }));
-  hp.position.set(0, 8.9, 0);
+  const group = createWarship(boat.color);
+  const hp = new THREE.Mesh(new THREE.BoxGeometry(4.2, 0.12, 0.12), new THREE.MeshBasicMaterial({ color: '#7df2b7' }));
+  hp.position.set(0, 19, 0);
   group.add(hp);
-  const wakeMat = new THREE.MeshBasicMaterial({ color: '#9be3e7', transparent: true, opacity: 0.35, side: THREE.DoubleSide });
-  const wake = [0, 1, 2].map((i) => {
-    const mesh = new THREE.Mesh(new THREE.RingGeometry(1 + i * 0.9, 1.2 + i * 0.9, 32), wakeMat.clone());
-    mesh.rotation.x = -Math.PI / 2;
-    mesh.position.z = -4 - i * 2.2;
-    group.add(mesh);
-    return mesh;
+  const canvas = document.createElement('canvas');
+  canvas.width = 64;canvas.height = 256;
+  const ctx = canvas.getContext('2d')!;
+  for (let y = 0; y < 256; y += 2) {
+    ctx.fillStyle = `rgba(245,255,249,${Math.pow(y/256,1.4)*.75})`;
+    ctx.fillRect(18+Math.sin(y*.17)*6,y,25,2);
+  }
+  const wakeTexture = new THREE.CanvasTexture(canvas);
+  const wake = [-1, 1].map((side) => {
+    const geometry = new THREE.PlaneGeometry(.35, 11, 1, 12);
+    geometry.rotateX(-Math.PI / 2);
+    const position = geometry.attributes.position;
+    for (let i = 0; i < position.count; i++) {
+      position.setX(i, position.getX(i) + side * (1.3 + (5.5-position.getZ(i))*.07));
+    }
+    const material = new THREE.MeshBasicMaterial({ color: '#f4fff7', map: wakeTexture, transparent: true, opacity: .44, side: THREE.DoubleSide, depthWrite: false });
+    const mesh = new THREE.Mesh(geometry, material);
+    mesh.position.set(0, .35, -12.5);group.add(mesh);return mesh;
   });
   return { group, hp, wake };
 }
 
-function tinaSailTexture(accent: string): THREE.CanvasTexture {
-  const canvas = document.createElement('canvas');
-  canvas.width = 256;
-  canvas.height = 320;
-  const ctx = canvas.getContext('2d')!;
-  ctx.fillStyle = '#efe4cf';
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-  ctx.strokeStyle = '#c7a97a';
-  ctx.lineWidth = 6;
-  for (let y = 18; y < 320; y += 34) {
-    ctx.beginPath();
-    ctx.moveTo(14, y);
-    ctx.bezierCurveTo(74, y + 15, 145, y - 15, 242, y + 8);
-    ctx.stroke();
-  }
-  ctx.fillStyle = accent;
-  ctx.beginPath();
-  ctx.moveTo(128, 44);
-  ctx.lineTo(164, 136);
-  ctx.lineTo(253, 142);
-  ctx.lineTo(181, 195);
-  ctx.lineTo(205, 284);
-  ctx.lineTo(128, 232);
-  ctx.lineTo(51, 284);
-  ctx.lineTo(75, 195);
-  ctx.lineTo(3, 142);
-  ctx.lineTo(92, 136);
-  ctx.closePath();
-  ctx.fill();
-  ctx.fillStyle = '#16323a';
-  ctx.font = 'bold 46px Georgia, serif';
-  ctx.textAlign = 'center';
-  ctx.fillText('Tina', 128, 178);
-  const texture = new THREE.CanvasTexture(canvas);
-  texture.colorSpace = THREE.SRGBColorSpace;
-  return texture;
-}
 
 function syncBoats(runtime: SceneRuntime, state: GameState, playerBoatId: string) {
   const ids = new Set(state.boats.map((boat) => boat.id));
@@ -360,15 +270,17 @@ function syncBoats(runtime: SceneRuntime, state: GameState, playerBoatId: string
     }
     render.group.position.set(boat.x, bob(state.now + boat.x), boat.z);
     render.group.rotation.y = boat.angle;
+    render.group.rotation.x = Math.sin(state.now * 1.4 + boat.x) * .012;
+    render.group.rotation.z = Math.cos(state.now * 1.1 + boat.z) * .009;
     render.group.visible = boat.hp > 0;
     render.group.scale.setScalar(boat.id === playerBoatId ? 1.08 : 1);
     render.hp.scale.x = Math.max(0.02, boat.hp / boat.maxHp);
     render.hp.position.x = -(1 - render.hp.scale.x) * 2.1;
     for (const [index, wake] of render.wake.entries()) {
       wake.visible = Math.hypot(boat.vx, boat.vz) > 0.9 && boat.hp > 0;
-      wake.scale.setScalar(1 + index * 0.2 + Math.sin(state.now * 4 + index) * 0.08);
+      wake.scale.setScalar(1 + Math.sin(state.now * 4 + index) * .02);
       const mat = wake.material as THREE.MeshBasicMaterial;
-      mat.opacity = 0.22 - index * 0.04;
+      mat.opacity = .44 * Math.min(1,Math.hypot(boat.vx,boat.vz)/12);
     }
   }
 }
@@ -441,23 +353,14 @@ function syncStorms(runtime: SceneRuntime, state: GameState) {
 }
 
 function syncIslands(runtime: SceneRuntime, state: GameState) {
-  for (const island of state.islands) {
-    if (runtime.islands.has(island.id)) continue;
-    const group = new THREE.Group();
-    const base = new THREE.Mesh(
-      new THREE.CylinderGeometry(island.radius, island.radius * 1.25, 3, 28),
-      new THREE.MeshStandardMaterial({ color: '#c7aa75', roughness: 0.9 }),
-    );
-    const grass = new THREE.Mesh(
-      new THREE.ConeGeometry(island.radius * 0.9, island.radius * 0.75, 28),
-      new THREE.MeshStandardMaterial({ color: '#4b8d5a', roughness: 0.82 }),
-    );
-    grass.position.y = 2.2;
-    group.add(base, grass);
-    group.position.set(island.x, 0, island.z);
-    runtime.islands.set(island.id, group);
+  const uniforms = (runtime.water.material as THREE.ShaderMaterial).uniforms.uIslands.value as THREE.Vector3[];
+  state.islands.forEach((island,index) => {
+    if (index < uniforms.length) uniforms[index].set(island.x,island.z,island.radius);
+    if (runtime.islands.has(island.id)) return;
+    const group = createRockIsland(island);
+    runtime.islands.set(island.id,group);
     runtime.scene.add(group);
-  }
+  });
 }
 
 function spawnEventParticles(runtime: SceneRuntime, events: GameEvent[]) {
