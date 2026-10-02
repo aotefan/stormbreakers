@@ -222,7 +222,7 @@ function BattleScreen({ session, onExit, labels, quality, volume, muted }: Battl
       lastInput.current = { ...lastInput.current, ...patch };
       battle.updateInput(lastInput.current);
     },
-    [battle],
+    [battle.updateInput],
   );
 
   const pulse = useCallback(
@@ -238,7 +238,7 @@ function BattleScreen({ session, onExit, labels, quality, volume, muted }: Battl
     const sync = () => {
       const throttle = (keys.has('w') ? 1 : 0) + (keys.has('s') ? -0.55 : 0);
       const turn = (keys.has('a') ? 1 : 0) + (keys.has('d') ? -1 : 0);
-      pushInput({ throttle, turn, dragTarget: null });
+      pushInput({ throttle, turn, dragTarget: null, stop: false });
     };
     const down = (event: KeyboardEvent) => {
       if (event.repeat) return;
@@ -273,7 +273,7 @@ function BattleScreen({ session, onExit, labels, quality, volume, muted }: Battl
         if (dragPointer.current === null && nearOwnShip) {
           dragPointer.current = event.pointerId;
           setDragTarget(event.world);
-          pushInput({ dragTarget: event.world, throttle: 1, turn: 0 });
+          pushInput({ dragTarget: event.world, throttle: 1, turn: 0, stop: false });
         } else if (dragPointer.current !== null) {
           pulse(event.clientX < window.innerWidth / 2 ? 'fireLeft' : 'fireRight');
         }
@@ -283,7 +283,7 @@ function BattleScreen({ session, onExit, labels, quality, volume, muted }: Battl
       } else if (event.type === 'end' && dragPointer.current === event.pointerId) {
         dragPointer.current = null;
         setDragTarget(null);
-        pushInput({ dragTarget: null, throttle: 0, turn: 0 });
+        pushInput({ dragTarget: null, throttle: 0, turn: 0, stop: true });
       }
     },
     [player, pulse, pushInput],

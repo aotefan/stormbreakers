@@ -4,7 +4,7 @@ import { createReadStream, existsSync } from 'node:fs';
 import { extname, join, normalize } from 'node:path';
 import { WebSocketServer, type WebSocket } from 'ws';
 import type { ClientMessage, Difficulty, PlayerInput, ServerMessage } from '../shared/protocol';
-import { addBoat, cloneStateForClient, createGameState, removeHumanToAi, stepGame } from '../shared/simulation';
+import { addBoat, cloneStateForClient, createGameState, removeHumanToAi, stepGame, stopBoatMotion } from '../shared/simulation';
 
 const PORT = Number(process.env.PORT ?? 8787);
 const ROOT = process.cwd();
@@ -90,6 +90,10 @@ function handleMessage(ws: WebSocket, message: ClientMessage): void {
     if (!room) return;
     room.inputs.set(existing.id, message.input);
     existing.input = message.input;
+    if (message.input.stop === true) {
+      const boat = room.state.boats.find((candidate) => candidate.id === existing.boatId);
+      if (boat) stopBoatMotion(boat);
+    }
     return;
   }
   if (message.type === 'pause') {
@@ -115,7 +119,8 @@ function handleMessage(ws: WebSocket, message: ClientMessage): void {
       state: createGameState({
         roomCode,
         mode: message.mode,
-        duration: message.testDuration ?? 180,
+        duration: process.env.NODE_ENV === 'test' && Number.isFinite(message.testDuration)
+          ? Math.max(0.1, Math.min(180, message.testDuration!)) : 180,
         aiCount: message.type === 'practice' ? 5 : 4,
       }),
       inputs: new Map(),

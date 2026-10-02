@@ -208,22 +208,6 @@ function updateBoat(state: GameState, boat: BoatState, input: PlayerInput, dt: n
     return;
   }
 
-  let throttle = clamp(input.throttle, -0.65, 1);
-  let turn = clamp(input.turn, -1, 1);
-  if (input.dragTarget) {
-    const dx = input.dragTarget.x - boat.x;
-    const dz = input.dragTarget.z - boat.z;
-    const d = Math.hypot(dx, dz);
-    if (d > 1.3) {
-      const desired = Math.atan2(dx, dz);
-      const delta = normAngle(desired - boat.angle);
-      turn = clamp(delta * 1.8, -1, 1);
-      throttle = clamp(d / 18, 0, 1);
-    } else {
-      throttle = 0;
-    }
-  }
-
   if (input.boost && boat.boostCooldown <= 0) {
     boat.boostTime = 1.4;
     boat.boostCooldown = 9;
@@ -241,6 +225,58 @@ function updateBoat(state: GameState, boat: BoatState, input: PlayerInput, dt: n
 
   if (input.fireLeft) fireCannon(state, boat, 'left');
   if (input.fireRight) fireCannon(state, boat, 'right');
+
+  moveBoat(state, boat, input, dt);
+
+  if (state.mode === 'storm') {
+    for (const storm of state.storms) {
+      const dx = boat.x - storm.x;
+      const dz = boat.z - storm.z;
+      const d = Math.hypot(dx, dz);
+      if (d < storm.radius) {
+        if (!input.stop) {
+          const force = (1 - d / storm.radius) * 16;
+          boat.vx += (dx / (d || 1)) * force * dt;
+          boat.vz += (dz / (d || 1)) * force * dt;
+        }
+        boat.hp -= dt * 10;
+        if (boat.hp <= 0) sinkBoat(state, undefined, boat);
+      }
+    }
+  }
+}
+
+export function stopBoatMotion(boat: BoatState): void {
+  boat.vx = 0;
+  boat.vz = 0;
+}
+
+export function predictBoatMovement(state: GameState, boat: BoatState, input: PlayerInput, dt: number): BoatState {
+  const predicted = { ...boat };
+  moveBoat(state, predicted, input, Math.max(0, Math.min(0.05, dt)));
+  const boats = state.boats.map((other) => other.id === boat.id ? predicted : { ...other });
+  resolveBoatCollisions({ ...state, boats });
+  return predicted;
+}
+
+function moveBoat(state: GameState, boat: BoatState, input: PlayerInput, dt: number): void {
+  if (input.stop || boat.hp <= 0) {
+    stopBoatMotion(boat);
+    return;
+  }
+  let throttle = clamp(input.throttle, -0.65, 1);
+  let turn = clamp(input.turn, -1, 1);
+  if (input.dragTarget) {
+    const dx = input.dragTarget.x - boat.x;
+    const dz = input.dragTarget.z - boat.z;
+    const d = Math.hypot(dx, dz);
+    if (d > 1.3) {
+      turn = clamp(normAngle(Math.atan2(dx, dz) - boat.angle) * 1.8, -1, 1);
+      throttle = clamp(d / 18, 0, 1);
+    } else {
+      throttle = 0;
+    }
+  }
 
   boat.angle = normAngle(boat.angle + turn * dt * 2.35);
   const speedLimit = boat.boostTime > 0 ? 33 : 22;
@@ -285,20 +321,6 @@ function updateBoat(state: GameState, boat: BoatState, input: PlayerInput, dt: n
     }
   }
 
-  if (state.mode === 'storm') {
-    for (const storm of state.storms) {
-      const dx = boat.x - storm.x;
-      const dz = boat.z - storm.z;
-      const d = Math.hypot(dx, dz);
-      if (d < storm.radius) {
-        const force = (1 - d / storm.radius) * 16;
-        boat.vx += (dx / (d || 1)) * force * dt;
-        boat.vz += (dz / (d || 1)) * force * dt;
-        boat.hp -= dt * 10;
-        if (boat.hp <= 0) sinkBoat(state, undefined, boat);
-      }
-    }
-  }
 }
 
 function fireCannon(state: GameState, boat: BoatState, side: 'left' | 'right'): void {

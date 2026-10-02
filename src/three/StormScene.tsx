@@ -46,6 +46,8 @@ interface SceneRuntime {
 export default function StormScene({ state, boatId, quality, dragTarget, onWorldPointer }: Props) {
   const mountRef = useRef<HTMLDivElement | null>(null);
   const runtimeRef = useRef<SceneRuntime | undefined>(undefined);
+  const pointerHandlerRef = useRef(onWorldPointer);
+  pointerHandlerRef.current = onWorldPointer;
 
   useEffect(() => {
     const mount = mountRef.current;
@@ -124,15 +126,15 @@ export default function StormScene({ state, boatId, quality, dragTarget, onWorld
       } catch {
         // Synthetic mobile QA events may not have an active browser pointer capture.
       }
-      onWorldPointer?.({ type: 'start', pointerId: event.pointerId, world: toWorld(event), clientX: event.clientX, clientY: event.clientY });
+      pointerHandlerRef.current?.({ type: 'start', pointerId: event.pointerId, world: toWorld(event), clientX: event.clientX, clientY: event.clientY });
     };
     const pointerMove = (event: PointerEvent) => {
       event.preventDefault();
-      onWorldPointer?.({ type: 'move', pointerId: event.pointerId, world: toWorld(event), clientX: event.clientX, clientY: event.clientY });
+      pointerHandlerRef.current?.({ type: 'move', pointerId: event.pointerId, world: toWorld(event), clientX: event.clientX, clientY: event.clientY });
     };
     const pointerEnd = (event: PointerEvent) => {
       event.preventDefault();
-      onWorldPointer?.({ type: 'end', pointerId: event.pointerId, world: toWorld(event), clientX: event.clientX, clientY: event.clientY });
+      pointerHandlerRef.current?.({ type: 'end', pointerId: event.pointerId, world: toWorld(event), clientX: event.clientX, clientY: event.clientY });
     };
     renderer.domElement.addEventListener('pointerdown', pointerStart, { passive: false });
     renderer.domElement.addEventListener('pointermove', pointerMove, { passive: false });
@@ -180,7 +182,7 @@ export default function StormScene({ state, boatId, quality, dragTarget, onWorld
       mount.removeChild(renderer.domElement);
       renderer.dispose();
     };
-  }, [onWorldPointer, quality]);
+  }, [quality]);
 
   useEffect(() => {
     const runtime = runtimeRef.current;
@@ -199,7 +201,7 @@ export default function StormScene({ state, boatId, quality, dragTarget, onWorld
       runtime.camera.position.lerp(new THREE.Vector3(player.x, 70, player.z + 70), 0.045);
       runtime.camera.lookAt(player.x, 0, player.z);
     }
-  }, [boatId, state]);
+  }, [boatId, quality, state]);
 
   useEffect(() => {
     const runtime = runtimeRef.current;
