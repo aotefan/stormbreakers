@@ -1,11 +1,37 @@
 import * as THREE from 'three';
 import type { IslandState } from '../../shared/protocol';
 
+// A small, repeatable normal field generated once rather than several per-pixel
+// noise functions. Waves travel in different directions to avoid a checkerboard.
+function createRippleTexture(): THREE.DataTexture {
+  const size=256,data=new Uint8Array(size*size*4);
+  const waves=[[5,9,.17],[11,-3,.12],[17,5,.085],[-7,19,.07],[31,13,.045],[-23,37,.025]];
+  for(let y=0;y<size;y++)for(let x=0;x<size;x++) {
+    let dx=0,dz=0,height=0;
+    for(let i=0;i<waves.length;i++) {
+      const [kx,kz,amplitude]=waves[i],phase=(x*kx+y*kz)/size*Math.PI*2+i*1.73;
+      const magnitude=Math.hypot(kx,kz);
+      dx+=Math.cos(phase)*amplitude*kx/magnitude;
+      dz+=Math.cos(phase)*amplitude*kz/magnitude;
+      height+=Math.sin(phase)*amplitude;
+    }
+    const offset=(y*size+x)*4;
+    data[offset]=Math.round(128+dx*190);
+    data[offset+1]=Math.round(128+dz*190);
+    data[offset+2]=Math.round(128+height*190);
+    data[offset+3]=255;
+  }
+  const texture=new THREE.DataTexture(data,size,size,THREE.RGBAFormat);
+  texture.wrapS=texture.wrapT=THREE.RepeatWrapping;
+  texture.magFilter=THREE.LinearFilter;texture.minFilter=THREE.LinearMipmapLinearFilter;
+  texture.generateMipmaps=true;texture.needsUpdate=true;return texture;
+}
+
 export function createOcean(): THREE.Mesh {
   const geometry=new THREE.PlaneGeometry(600,600,100,100);
   geometry.rotateX(-Math.PI/2);
   const material=new THREE.ShaderMaterial({
-    uniforms:{uTime:{value:0},uIslands:{value:Array.from({length:6},()=>new THREE.Vector3(0,0,0))}},
+    uniforms:{uTime:{value:0},uRipples:{value:createRippleTexture()},uIslands:{value:Array.from({length:6},()=>new THREE.Vector3(0,0,0))}},
     vertexShader:`
       uniform float uTime;
       varying vec3 vWorld;
@@ -18,6 +44,7 @@ export function createOcean(): THREE.Mesh {
     fragmentShader:`
       uniform float uTime;
       uniform vec3 uIslands[6];
+      uniform sampler2D uRipples;
       varying vec3 vWorld;
       float hash(vec2 p) { return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453); }
       float noise(vec2 p) {
@@ -26,12 +53,16 @@ export function createOcean(): THREE.Mesh {
       }
       void main() {
         vec2 p=vWorld.xz;
-        float ripple=sin(p.x*.92+p.y*1.13+uTime*1.1)*.15+sin(p.x*1.8-p.y*.8-uTime*1.3)*.09;
-        vec3 n=normalize(vec3(-cos(p.x*.13+uTime*.55)*.13*.24-ripple,1.,sin(p.y*.19-uTime*.6)*.19*.18+ripple*.5));
+        vec3 waveA=texture2D(uRipples,p/96.+vec2(uTime*.003,-uTime*.0017)).rgb;
+        vec3 waveB=texture2D(uRipples,vec2(p.y,-p.x)/53.+vec2(-uTime*.002,uTime*.004)).rgb;
+        vec2 ripple=(waveA.rg-.5)*.20+(waveB.rg-.5)*.10;
+        vec3 n=normalize(vec3(-cos(p.x*.13+uTime*.55)*.13*.24+ripple.x,1.,sin(p.y*.19-uTime*.6)*.19*.18+ripple.y));
         float shore=0.,foam=0.;
         for(int i=0;i<6;i++) {
           if(uIslands[i].z>.1) {
             vec2 delta=p-uIslands[i].xy;
+            float extent=uIslands[i].z+5.;
+            if(dot(delta,delta)>extent*extent) continue;
             float angle=atan(delta.y,delta.x);
             float phase=uIslands[i].x*.11;
             float radius=uIslands[i].z*(.89+.05*sin(angle*3.+phase)+.04*cos(angle*5.-phase)+.025*sin(angle*9.+phase));
@@ -46,10 +77,9 @@ export function createOcean(): THREE.Mesh {
         water=mix(water,vec3(.018,.22,.21),shore*.84);
         vec3 viewDirection=normalize(cameraPosition-vWorld);
         vec3 sunlight=normalize(vec3(-.25,.82,-.55));
-        float specular=pow(max(dot(reflect(-sunlight,n),viewDirection),0.),90.);
-        float glitter=pow(max(0.,sin(p.x*.92+p.y*1.7+noise(p*.28)*5.+uTime*.8)*cos(p.y*2.1-p.x*.7+noise(p*.37)*4.-uTime*.7)),12.);
-        float sparkle=glitter*(.08+.16*noise(p*.8));
-        water+=vec3(.90,.84,.65)*specular*.55+vec3(.24,.43,.47)*sparkle;
+        float specular=pow(max(dot(reflect(-sunlight,n),viewDirection),0.),110.);
+        float sparkle=smoothstep(.69,.93,waveA.b*waveB.b+.21)*.16;
+        water+=vec3(.90,.84,.65)*specular*.30+vec3(.24,.43,.47)*sparkle;
         float fresnel=pow(1.-max(dot(viewDirection,n),0.),4.);
         water=mix(water,vec3(.26,.44,.51),fresnel*.45);
         water=mix(water,vec3(.63,.79,.72),foam);

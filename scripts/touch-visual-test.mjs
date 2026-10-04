@@ -20,7 +20,8 @@ async function waitFor(predicate, label, timeout=10000) {
 }
 async function install(context) {
   await context.addInitScript(() => {
-    window.qa = { states: [], inputs: [], joined: null, delayStop: false, sockets: [] };
+    window.qa = { states: [], inputs: [], joined: null, delayStop: false, sockets: [], delayedStops: [] };
+    window.qa.releaseStops=()=>window.qa.delayedStops.splice(0).forEach(send=>send());
     const Native=window.WebSocket;
     window.WebSocket=class extends Native {
       constructor(...args) {
@@ -35,7 +36,9 @@ async function install(context) {
         const message=JSON.parse(data);
         if(message.type==='input')window.qa.inputs.push(message.input);
         if(message.type==='input'&&message.input.stop&&window.qa.delayStop) {
-          setTimeout(()=>super.send(data),700);
+          // Hold until the pre-ack assertion: slow software frames can exceed
+          // a fixed delay and accidentally test only the authoritative stop.
+          window.qa.delayedStops.push(()=>super.send(data));
         } else super.send(data);
       }
     };
@@ -95,8 +98,8 @@ async function gesture(page, label, online) {
     const release=await page.evaluate('window.qa.inputs.findLast(i=>i.stop===true)');
     const authorityBefore=await page.evaluate('window.qa.state.boats.find(b=>b.id===window.qa.joined.boatId)');
     check(authorityBefore.lastInputSeq<release.seq,label+' prediction tested before delayed server stop acknowledgement',{releaseSeq:release.seq,serverSeq:authorityBefore.lastInputSeq});
+    await page.evaluate('window.qa.delayStop=false;window.qa.releaseStops()');
     await waitFor(()=>page.evaluate(seq=> {const b=window.qa.state.boats.find(b=>b.id===window.qa.joined.boatId);return b.lastInputSeq>=seq&&b.vx===0&&b.vz===0;},release.seq),label+' server stopped');
-    await page.evaluate('window.qa.delayStop=false');
     await page.waitForTimeout(800);
     const first=await page.evaluate('window.qa.state.boats.find(b=>b.id===window.qa.joined.boatId)');
     await page.waitForTimeout(180);

@@ -61,7 +61,6 @@ export default function StormScene({ state, boatId, quality, dragTarget, onWorld
     camera.position.set(0, 55, 60);
     camera.lookAt(0, 0, 0);
     const renderer = new THREE.WebGLRenderer({ antialias: quality !== 'low', alpha: false, powerPreference: 'high-performance' });
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, quality === 'high' ? 2 : 1.35));
     renderer.shadowMap.enabled = quality === 'high';
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.05;
@@ -107,6 +106,10 @@ export default function StormScene({ state, boatId, quality, dragTarget, onWorld
 
     const resize = () => {
       const rect = mount.getBoundingClientRect();
+      // Keep full ship geometry while bounding fragment work on retina tablets.
+      const pixelBudget=quality==='high'?3_000_000:quality==='low'?900_000:1_500_000;
+      const budgetRatio=Math.sqrt(pixelBudget/Math.max(1,rect.width*rect.height));
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio,quality==='high'?2:quality==='low'?1:1.35,budgetRatio));
       camera.aspect = rect.width / Math.max(1, rect.height);
       camera.updateProjectionMatrix();
       renderer.setSize(rect.width, rect.height, false);
@@ -185,6 +188,7 @@ export default function StormScene({ state, boatId, quality, dragTarget, onWorld
         for (const material of Array.isArray(object.material) ? object.material : [object.material]) {
           materials.add(material);
           for (const value of Object.values(material)) if (value instanceof THREE.Texture) textures.add(value);
+          if(material instanceof THREE.ShaderMaterial)for(const uniform of Object.values(material.uniforms))if(uniform.value instanceof THREE.Texture)textures.add(uniform.value);
         }
       });
       textures.forEach((texture) => texture.dispose());
