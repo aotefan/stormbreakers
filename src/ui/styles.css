@@ -296,6 +296,8 @@ label {
   font-size: 12px;
 }
 
+.weapon-powered { color: #f7ca67; font-weight: 700; }
+
 .minimap {
   left: 14px;
   bottom: 14px;

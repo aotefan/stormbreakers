@@ -11,12 +11,15 @@ import type {
   StormCellState,
   Vec2,
 } from './protocol';
+import { getAiInput } from './ai';
 
 const FIELD = 96;
 const BOAT_RADIUS = 3.2;
 const CANNON_RANGE_SECONDS = 1.45;
 const CANNON_SPEED = 58;
 const DAMAGE = 34;
+export const SUPPLY_DURATION = 15;
+export const SUPPLY_BOX_LIFETIME = 30;
 const COLORS = ['#d64d3f', '#f0b84b', '#54b7c9', '#9de06f', '#b986ff', '#f27fb2'];
 const NAMES = ['Tina', 'Azure', 'Harbor', 'Coral', 'Mistral', 'Lantern'];
 
@@ -41,6 +44,16 @@ function dist(a: Vec2, b: Vec2): number {
 function randPos(seed = Math.random() * Math.PI * 2, radius = FIELD * 0.34): Vec2 {
   const r = radius * (0.45 + Math.random() * 0.55);
   return { x: Math.cos(seed) * r, z: Math.sin(seed) * r };
+}
+
+function safeSpawn(state:GameState,excludeId?:string):Vec2 {
+  // Deterministic spread first; alternate rings cover crowded respawn situations.
+  for(let attempt=0;attempt<96;attempt++) {
+    const a=state.boats.length*Math.PI/3+attempt*2.399963+state.now*.13;
+    const r=44+(attempt%4)*9,p={x:Math.cos(a)*r,z:Math.sin(a)*r};
+    if(state.islands.every(i=>dist(p,i)>i.radius+7)&&state.boats.every(b=>b.id===excludeId||b.hp<=0||dist(p,b)>22))return p;
+  }
+  return {x:-80,z:-80};
 }
 
 export interface CreateOptions {
@@ -93,17 +106,19 @@ export function addBoat(
   let boat: BoatState | undefined;
   if (options.replaceAi) boat = state.boats.find((candidate) => candidate.ai);
   if (boat) {
+    if(boat.hp<=0){const spawn=safeSpawn(state,boat.id);boat.x=spawn.x;boat.z=spawn.z;}
     boat.playerId = options.playerId;
     boat.name = options.name;
     boat.ai = options.ai;
     boat.hp = boat.maxHp;
     boat.sunkUntil = 0;
     boat.lastInputSeq = 0;
+    stopBoatMotion(boat);
     return boat;
   }
 
-  const angle = (state.boats.length / Math.max(6, state.boats.length + 1)) * Math.PI * 2;
-  const p = randPos(angle, FIELD * 0.35);
+  const p = safeSpawn(state);
+  const angle = Math.atan2(-p.x,-p.z);
   boat = {
     id: `boat-${Math.random().toString(36).slice(2, 9)}`,
     playerId: options.playerId,
@@ -113,7 +128,7 @@ export function addBoat(
     z: p.z,
     vx: 0,
     vz: 0,
-    angle: angle + Math.PI,
+    angle,
     hp: 100,
     maxHp: 100,
     score: 0,
@@ -124,6 +139,8 @@ export function addBoat(
     repairCooldown: 0,
     supplyCooldown: 0,
     boostTime: 0,
+    salvoCount: 1,
+    powerUntil: 0,
     color: COLORS[state.boats.length % COLORS.length],
     lastInputSeq: 0,
   };
@@ -144,7 +161,7 @@ export function seedChests(state: GameState): void {
   while (state.chests.length < wanted) {
     const p = randPos();
     if (state.islands.every((island) => dist(p, island) > island.radius + 6)) {
-      state.chests.push({ id: `chest-${Math.random().toString(36).slice(2, 9)}`, x: p.x, z: p.z });
+      state.chests.push({ id: `chest-${Math.random().toString(36).slice(2, 9)}`, x: p.x, z: p.z, expiresAt:state.now+SUPPLY_BOX_LIFETIME });
     }
   }
 }
@@ -164,7 +181,7 @@ export function stepGame(state: GameState, dt: number, humanInputs: Map<string, 
   resolveBoatCollisions(state);
   updateCannonballs(state, dt);
   collectChests(state);
-  if (state.mode !== 'battle') seedChests(state);
+  seedChests(state);
 
   if (state.mode === 'storm') {
     for (const boat of state.boats) {
@@ -186,6 +203,7 @@ function idleInput(seq: number): PlayerInput {
 }
 
 function updateBoat(state: GameState, boat: BoatState, input: PlayerInput, dt: number): void {
+  if(state.now>=boat.powerUntil){boat.salvoCount=1;boat.powerUntil=0;}
   boat.cooldownLeft = Math.max(0, boat.cooldownLeft - dt);
   boat.cooldownRight = Math.max(0, boat.cooldownRight - dt);
   boat.boostCooldown = Math.max(0, boat.boostCooldown - dt);
@@ -198,9 +216,10 @@ function updateBoat(state: GameState, boat: BoatState, input: PlayerInput, dt: n
     boat.vx = 0;
     boat.vz = 0;
     if (state.now >= boat.sunkUntil) {
-      const p = randPos();
+      const p = safeSpawn(state,boat.id);
       boat.x = p.x;
       boat.z = p.z;
+      boat.angle = Math.atan2(-p.x,-p.z);
       boat.hp = boat.maxHp;
       boat.sunkUntil = 0;
       state.events.push({ type: 'respawn', boatId: boat.id, x: boat.x, z: boat.z });
@@ -291,8 +310,9 @@ function moveBoat(state: GameState, boat: BoatState, input: PlayerInput, dt: num
     boat.vz = (boat.vz / currentSpeed) * speedLimit;
   }
   const drag = input.dragTarget || Math.abs(throttle) > 0 ? 0.985 : 0.9;
-  boat.vx *= drag;
-  boat.vz *= drag;
+  const damping=Math.pow(drag,dt*60);
+  boat.vx *= damping;
+  boat.vz *= damping;
   boat.x += boat.vx * dt;
   boat.z += boat.vz * dt;
 
@@ -312,8 +332,8 @@ function moveBoat(state: GameState, boat: BoatState, input: PlayerInput, dt: num
     const d = Math.hypot(dx, dz);
     const min = island.radius + BOAT_RADIUS;
     if (d < min) {
-      const nx = dx / (d || 1);
-      const nz = dz / (d || 1);
+      const nx = d>0.0001?dx/d:1;
+      const nz = d>0.0001?dz/d:0;
       boat.x = island.x + nx * min;
       boat.z = island.z + nz * min;
       boat.vx *= -0.18;
@@ -327,20 +347,26 @@ function fireCannon(state: GameState, boat: BoatState, side: 'left' | 'right'): 
   const key = side === 'left' ? 'cooldownLeft' : 'cooldownRight';
   if (boat[key] > 0 || boat.hp <= 0) return;
   boat[key] = 3;
-  const sign = side === 'left' ? -1 : 1;
+  // Forward is local +Z: port is +X and starboard is -X.
+  const sign = side === 'left' ? 1 : -1;
   const sideAngle = boat.angle + sign * Math.PI * 0.5;
   const muzzleX = boat.x + Math.sin(sideAngle) * 4.5 + Math.sin(boat.angle) * 0.6;
   const muzzleZ = boat.z + Math.cos(sideAngle) * 4.5 + Math.cos(boat.angle) * 0.6;
+  const count=boat.powerUntil>state.now?boat.salvoCount:1;
+  for(let i=0;i<count;i++) {
+  const shotAngle=sideAngle+(i-(count-1)/2)*.09;
   state.cannonballs.push({
     id: `ball-${Math.random().toString(36).slice(2, 9)}`,
     ownerId: boat.id,
     x: muzzleX,
     z: muzzleZ,
-    vx: Math.sin(sideAngle) * CANNON_SPEED + boat.vx * 0.25,
-    vz: Math.cos(sideAngle) * CANNON_SPEED + boat.vz * 0.25,
+    vx: Math.sin(shotAngle) * CANNON_SPEED + boat.vx * 0.25,
+    vz: Math.cos(shotAngle) * CANNON_SPEED + boat.vz * 0.25,
     ttl: CANNON_RANGE_SECONDS,
     side,
+    damage:count>1?Math.round(DAMAGE*1.2):DAMAGE,
   });
+  }
   state.events.push({ type: 'fire', boatId: boat.id, side, x: muzzleX, z: muzzleZ, angle: sideAngle });
 }
 
@@ -353,7 +379,7 @@ function updateCannonballs(state: GameState, dt: number): void {
     if (ball.ttl <= 0 || Math.abs(ball.x) > FIELD || Math.abs(ball.z) > FIELD) continue;
     const target = state.boats.find((boat) => boat.id !== ball.ownerId && boat.hp > 0 && dist({ x: ball.x, z: ball.z }, boat) < BOAT_RADIUS + 1.2);
     if (target) {
-      target.hp -= DAMAGE;
+      target.hp -= ball.damage;
       state.events.push({ type: 'hit', boatId: ball.ownerId, targetId: target.id, x: ball.x, z: ball.z });
       if (target.hp <= 0) sinkBoat(state, ball.ownerId, target);
       continue;
@@ -368,6 +394,8 @@ function sinkBoat(state: GameState, attackerId: string | undefined, target: Boat
   target.sunkUntil = state.now + 5;
   target.vx = 0;
   target.vz = 0;
+  target.salvoCount=1;
+  target.powerUntil=0;
   const attacker = state.boats.find((boat) => boat.id === attackerId);
   if (attacker) attacker.score += 100;
   state.events.push({ type: 'sink', boatId: attackerId ?? target.id, targetId: target.id, x: target.x, z: target.z });
@@ -376,10 +404,13 @@ function sinkBoat(state: GameState, attackerId: string | undefined, target: Boat
 function collectChests(state: GameState): void {
   const remaining: ChestState[] = [];
   for (const chest of state.chests) {
+    if(state.now>=chest.expiresAt)continue;
     const boat = state.boats.find((candidate) => candidate.hp > 0 && dist(chest, candidate) < BOAT_RADIUS + 2);
     if (boat) {
       boat.score += state.mode === 'treasure' ? 45 : 35;
       boat.hp = Math.min(boat.maxHp, boat.hp + 10);
+      boat.salvoCount=Math.min(3,(boat.powerUntil>state.now?boat.salvoCount:1)+1);
+      boat.powerUntil=state.now+SUPPLY_DURATION;
       state.events.push({ type: 'chest', boatId: boat.id, x: chest.x, z: chest.z });
     } else {
       remaining.push(chest);
@@ -399,8 +430,8 @@ function resolveBoatCollisions(state: GameState): void {
       const d = Math.hypot(dx, dz);
       const min = BOAT_RADIUS * 2;
       if (d < min) {
-        const nx = dx / (d || 1);
-        const nz = dz / (d || 1);
+        const nx = d>0.0001?dx/d:1;
+        const nz = d>0.0001?dz/d:0;
         const push = (min - d) * 0.5;
         a.x += nx * push;
         a.z += nz * push;
@@ -422,35 +453,6 @@ function animateStorms(state: GameState, dt: number): void {
     storm.z += Math.cos(storm.phase * 0.37) * dt * 1.8;
     storm.radius = clamp(storm.radius + Math.sin(storm.phase * 0.7) * dt * 1.6, 8, 18);
   }
-}
-
-function getAiInput(state: GameState, boat: BoatState, difficulty: Difficulty): PlayerInput {
-  const aggressiveness = difficulty === 'hard' ? 1 : difficulty === 'normal' ? 0.75 : 0.55;
-  const enemies = state.boats.filter((candidate) => candidate.id !== boat.id && candidate.hp > 0);
-  const nearest = enemies.sort((a, b) => dist(a, boat) - dist(b, boat))[0];
-  const chest = state.chests.sort((a, b) => dist(a, boat) - dist(b, boat))[0];
-  let target: Vec2 | undefined = nearest;
-  if (state.mode === 'treasure' && chest && (!nearest || dist(chest, boat) < dist(nearest, boat) * 1.25)) target = chest;
-  if (state.mode === 'storm') {
-    const dangerous = state.storms.find((storm) => dist(storm, boat) < storm.radius + 6);
-    if (dangerous) target = { x: -dangerous.x, z: -dangerous.z };
-  }
-  if (!target) target = randPos(state.now + boat.x);
-
-  const desired = Math.atan2(target.x - boat.x, target.z - boat.z);
-  const delta = normAngle(desired - boat.angle);
-  const sideDelta = nearest ? normAngle(Math.atan2(nearest.x - boat.x, nearest.z - boat.z) - boat.angle) : 0;
-  const close = nearest && dist(nearest, boat) < 35;
-  return {
-    seq: state.tick,
-    throttle: clamp(dist(target, boat) / 34, 0.25, 1),
-    turn: clamp(delta * 1.7, -1, 1),
-    boost: difficulty === 'hard' && state.tick % 160 === 0,
-    repair: boat.hp < 44,
-    supply: boat.cooldownLeft > 1.5 && boat.cooldownRight > 1.5 && close,
-    fireLeft: !!close && sideDelta < -0.8 && sideDelta > -2.35 && Math.random() < 0.13 * aggressiveness,
-    fireRight: !!close && sideDelta > 0.8 && sideDelta < 2.35 && Math.random() < 0.13 * aggressiveness,
-  };
 }
 
 export function cloneStateForClient(state: GameState): GameState {

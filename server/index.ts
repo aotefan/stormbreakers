@@ -154,7 +154,7 @@ function placeDuel(room: Room): void {
   a.hp = a.maxHp;
   a.cooldownRight = 0;
   b.x = -5;
-  b.z = -14;
+  b.z = 14;
   b.angle = -Math.PI / 2;
   b.hp = b.maxHp;
   b.cooldownRight = 0;

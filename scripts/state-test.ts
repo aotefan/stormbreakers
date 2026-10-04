@@ -38,7 +38,7 @@ async function main() {
   }, 'two independent clients share the same authoritative room');
 
   a.send({ type: 'debug', command: 'placeDuel' });
-  await waitFor(() => a.latest().boats.some((boat) => boat.name === 'Beta' && boat.z < -10), 'debug duel placement applied');
+  await waitFor(() => a.latest().boats.some((boat) => boat.name === 'Beta' && boat.z > 10), 'debug duel placement applied');
   const betaBefore = a.latest().boats.find((boat) => boat.name === 'Beta')!.hp;
   a.send({ type: 'input', input: { seq: 1, throttle: 0, turn: 0, fireRight: true } });
   await waitFor(() => {
@@ -84,9 +84,9 @@ function runRuleChecks() {
   captain.x = 0;
   captain.z = 0;
   captain.angle = 0;
-  left.x = -14;
+  left.x = 14;
   left.z = 0;
-  right.x = 14;
+  right.x = -14;
   right.z = 0;
   stepGame(reload, 0.05, new Map([['captain', { seq: 1, throttle: 0, turn: 0, fireLeft: true, fireRight: true }]]), 'normal');
   advance(reload, 0.35, 'captain');
@@ -108,7 +108,7 @@ function runRuleChecks() {
   alpha.z = 0;
   alpha.angle = Math.PI / 2;
   beta.x = -5;
-  beta.z = -14;
+  beta.z = 14;
   beta.hp = 1;
   stepGame(respawn, 0.05, new Map([['alpha', { seq: 1, throttle: 0, turn: 0, fireRight: true }]]), 'normal');
   advance(respawn, 0.4, 'alpha');

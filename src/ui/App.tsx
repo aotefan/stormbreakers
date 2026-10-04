@@ -25,7 +25,8 @@ const text = {
     volume: '音量',
     mute: '静音',
     guide: '指南',
-    guideBody: 'WASD 航行，Q/E 左右舷开炮，Space 冲刺，R 修复。移动端按住自己的船拖动，松开停止；另一根手指点左右半屏开炮。每局 180 秒，击沉 +100，宝箱 +35/45，最高分胜。',
+    guideBody: 'WASD 航行，面向船头：Q 左舷开炮，E 右舷开炮；Space 冲刺，R 修复。移动端按住自己的船拖动，松开停止；另一根手指点左右半屏开炮。每局 180 秒，击沉 +100，宝箱 +35/45，最高分胜。',
+    supplyGuide: '默认每次 1 枚炮弹。拾取补给箱后每次增加 1 枚（最多 3 枚），伤害 +20%，持续 15 秒；再次拾取刷新时间。海面箱子存在 30 秒，底部光环显示剩余时间。',
     battleBody: '自由海战：宝箱少，重点是走位和左右舷炮交火。',
     stormBody: '风暴生存：移动风暴会推船并造成伤害，活着会持续得分。',
     treasureBody: '宝藏争夺：宝箱更多且价值更高，抢宝和拦截同样重要。',
@@ -44,7 +45,11 @@ const text = {
     onlineRunning: '联机仍在运行',
     boost: '冲刺',
     repair: '修复',
-    supply: '补给',
+    supply: '装填',
+    leftCannon: 'Q 左舷',
+    rightCannon: 'E 右舷',
+    weapon: '齐射',
+    enhanced: '伤害 +20%',
   },
   en: {
     title: 'Stormbreakers',
@@ -62,7 +67,8 @@ const text = {
     volume: 'Volume',
     mute: 'Mute',
     guide: 'Guide',
-    guideBody: 'WASD to sail, Q/E for port/starboard cannons, Space to boost, R to repair. On touch, hold your ship and drag; release to stop. Use another finger on either half of the screen to fire. Rounds last 180 seconds. Sink +100, chest +35/45, top score wins.',
+    guideBody: 'WASD to sail. Facing the bow, Q fires port (left), E fires starboard (right). Space boosts, R repairs. On touch, hold your ship and drag; release to stop. Use another finger on either half of the screen to fire. Rounds last 180 seconds. Sink +100, chest +35/45, top score wins.',
+    supplyGuide: 'One cannonball per shot by default. Each supply pickup adds one (up to 3) and +20% damage for 15 seconds. Pick up again to refresh the timer. Floating crates last 30 seconds; their rings show time remaining.',
     battleBody: 'Free Battle: fewer chests, more broadside duels and positioning.',
     stormBody: 'Storm Survival: moving storm cells shove ships, deal damage, and survival scores over time.',
     treasureBody: 'Treasure Raid: more chests with higher value, rewarding raids and interception.',
@@ -81,7 +87,11 @@ const text = {
     onlineRunning: 'Online still running',
     boost: 'Boost',
     repair: 'Repair',
-    supply: 'Supply',
+    supply: 'Reload',
+    leftCannon: 'Q Port',
+    rightCannon: 'E Stbd',
+    weapon: 'Salvo',
+    enhanced: '+20% damage',
   },
 } as const;
 
@@ -179,6 +189,7 @@ export default function App() {
       <section className="guide-panel">
         <h2>{t.guide}</h2>
         <p>{t.guideBody}</p>
+        <p>{t.supplyGuide}</p>
         <p>{t.battleBody}</p>
         <p>{t.stormBody}</p>
         <p>{t.treasureBody}</p>
@@ -326,17 +337,21 @@ function BattleScreen({ session, onExit, labels, quality, volume, muted }: Battl
           <div><i style={{ width: `${Math.max(0, player?.hp ?? 0)}%` }} /></div>
         </div>
         <div className="skills">
-          <button onPointerDown={() => pulse('fireLeft')}>Q</button>
+          <button data-testid="fire-left" onPointerDown={() => pulse('fireLeft')}>{labels.leftCannon}</button>
           <button onPointerDown={() => pulse('boost')}>{labels.boost}</button>
           <button onPointerDown={() => pulse('repair')}>{labels.repair}</button>
           <button onPointerDown={() => pulse('supply')}>{labels.supply}</button>
-          <button onPointerDown={() => pulse('fireRight')}>E</button>
+          <button data-testid="fire-right" onPointerDown={() => pulse('fireRight')}>{labels.rightCannon}</button>
         </div>
         <div className="cooldowns">
           <span data-testid="left-cooldown">L {cool(player?.cooldownLeft)}</span>
           <span>{labels.boost} {cool(player?.boostCooldown)}</span>
           <span>{labels.repair} {cool(player?.repairCooldown)}</span>
           <span data-testid="right-cooldown">R {cool(player?.cooldownRight)}</span>
+          <span data-testid="weapon-status" className={player&&player.powerUntil>(battle.state?.now??0)?'weapon-powered':''}>
+            {labels.weapon} ×{player?.salvoCount??1}
+            {player&&player.powerUntil>(battle.state?.now??0)?` · ${labels.enhanced} · ${Math.ceil(player.powerUntil-(battle.state?.now??0))}s`:''}
+          </span>
         </div>
       </section>
 

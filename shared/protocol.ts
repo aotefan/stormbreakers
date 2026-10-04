@@ -40,6 +40,8 @@ export interface BoatState {
   repairCooldown: number;
   supplyCooldown: number;
   boostTime: number;
+  salvoCount: number;
+  powerUntil: number;
   color: string;
   lastInputSeq: number;
 }
@@ -53,12 +55,14 @@ export interface CannonballState {
   vz: number;
   ttl: number;
   side: 'left' | 'right';
+  damage: number;
 }
 
 export interface ChestState {
   id: string;
   x: number;
   z: number;
+  expiresAt: number;
 }
 
 export interface StormCellState {

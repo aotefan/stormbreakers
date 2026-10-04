@@ -26,7 +26,7 @@ function woodTexture(deck: boolean): THREE.CanvasTexture {
   return texture;
 }
 
-function sailTexture(): THREE.CanvasTexture {
+function sailTexture(captainName: string, showCaptain=true): THREE.CanvasTexture {
   const canvas = document.createElement('canvas');
   canvas.width = canvas.height = 512;
   const ctx = canvas.getContext('2d')!;
@@ -42,8 +42,20 @@ function sailTexture(): THREE.CanvasTexture {
     ctx.beginPath();ctx.moveTo(0,0);ctx.lineTo(Math.sin(a)*r,Math.cos(a)*r);ctx.stroke();
   }
   ctx.fillStyle = '#65512e';ctx.font='italic 25px Georgia, serif';ctx.textAlign='center';ctx.fillText('Tina',0,54);
+  const name=Array.from(captainName.trim()||'Captain').slice(0,20).join('');
+  let fontSize=72;
+  do {ctx.font=`600 ${fontSize}px "PingFang SC", "Microsoft YaHei", sans-serif`;fontSize-=2;}while(ctx.measureText(name).width>410&&fontSize>18);
+  ctx.fillStyle='#453a27';if(showCaptain)ctx.fillText(name,0,132,420);
   const texture = new THREE.CanvasTexture(canvas);texture.colorSpace = THREE.SRGBColorSpace;
+  texture.userData.captainName=captainName;
   return texture;
+}
+
+export function updateWarshipCaptain(group:THREE.Group,name:string):void {
+  if(group.userData.captainName===name)return;
+  const sail=group.getObjectByName('warship-canvas') as THREE.Mesh<THREE.BufferGeometry,THREE.MeshStandardMaterial>;
+  sail.material.map?.dispose();sail.material.map=sailTexture(name);
+  group.userData.captainName=name;
 }
 
 function beam(z: number): number {
@@ -97,8 +109,9 @@ function billowingSail(width:number,height:number,z:number,top:number): THREE.Bu
   geometry.computeVertexNormals();return geometry;
 }
 
-export function createWarship(accent: string): THREE.Group {
+export function createWarship(accent: string, captainName: string): THREE.Group {
   const group=new THREE.Group();group.name='Sovereign three-deck warship';
+  group.userData.captainName=captainName;
   const materials={
     hull:new THREE.MeshStandardMaterial({color:'#9aa8ae',map:woodTexture(false),roughness:.64,side:THREE.DoubleSide}),
     deck:new THREE.MeshStandardMaterial({color:'#c6b392',map:woodTexture(true),roughness:.83}),
@@ -107,9 +120,21 @@ export function createWarship(accent: string): THREE.Group {
     metal:new THREE.MeshStandardMaterial({color:'#252c30',metalness:.65,roughness:.34}),
     port:new THREE.MeshStandardMaterial({color:'#0a151c',roughness:.88}),
     glass:new THREE.MeshStandardMaterial({color:'#365968',metalness:.28,roughness:.15}),
-    canvas:new THREE.MeshStandardMaterial({color:'#ffffff',map:sailTexture(),side:THREE.DoubleSide,roughness:.93}),
+    canvas:new THREE.MeshStandardMaterial({color:'#ffffff',map:sailTexture(captainName),side:THREE.DoubleSide,roughness:.93}),
+    jib:new THREE.MeshStandardMaterial({color:'#ffffff',map:sailTexture('',false),side:THREE.DoubleSide,roughness:.93}),
     accent:new THREE.MeshStandardMaterial({color:accent,side:THREE.DoubleSide,roughness:.65}),
   };
+  // Names are readable from both sides of the sail instead of mirror-written.
+  materials.canvas.onBeforeCompile=shader=>{
+    shader.fragmentShader=shader.fragmentShader.replace('#include <map_fragment>',`#ifdef USE_MAP
+      vec2 captainUv=vMapUv;
+      if(!gl_FrontFacing) captainUv.x=1.-captainUv.x;
+      diffuseColor*=texture2D(map,captainUv);
+      #endif`);
+  };
+  materials.canvas.customProgramCacheKey=()=> 'captain-sail-v1';
+  materials.jib.onBeforeCompile=materials.canvas.onBeforeCompile;
+  materials.jib.customProgramCacheKey=materials.canvas.customProgramCacheKey;
   type MaterialName=keyof typeof materials;
   const batches=new Map<MaterialName,THREE.BufferGeometry[]>();
   const ropes:number[]=[];
@@ -210,9 +235,9 @@ export function createWarship(accent: string): THREE.Group {
   rope(new THREE.Vector3(0,17.5,0),new THREE.Vector3(0,15.7,4.2));
   rope(new THREE.Vector3(0,13.2,-4.5),new THREE.Vector3(0,17.5,0));
   const jib=new THREE.BufferGeometry();jib.setAttribute('position',new THREE.Float32BufferAttribute([0,14.8,4.6,.08,6.7,11.3,.10,6.6,5.9],3));
-  jib.setAttribute('uv',new THREE.Float32BufferAttribute([0,1,1,0,0,0],2));jib.computeVertexNormals();add(jib,'canvas');
+  jib.setAttribute('uv',new THREE.Float32BufferAttribute([0,1,1,0,0,0],2));jib.computeVertexNormals();add(jib,'jib');
   const smallJib=new THREE.BufferGeometry();smallJib.setAttribute('position',new THREE.Float32BufferAttribute([0,11.2,5.2,.04,6.5,11.8,.04,6.4,8.0],3));
-  smallJib.setAttribute('uv',new THREE.Float32BufferAttribute([0,1,1,0,0,0],2));smallJib.computeVertexNormals();add(smallJib,'canvas');
+  smallJib.setAttribute('uv',new THREE.Float32BufferAttribute([0,1,1,0,0,0],2));smallJib.computeVertexNormals();add(smallJib,'jib');
   box(0,3.3,2.1,1.1,.22,1.25,'timber');box(0,3.44,2.1,.85,.08,1.02,'metal');
   for(const [name,geometries] of batches) {
     const merged=mergeGeometries(geometries,false)!;

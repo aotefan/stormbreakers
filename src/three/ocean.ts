@@ -1,5 +1,6 @@
 import * as THREE from 'three';
-import type { IslandState } from '../../shared/protocol';
+import { Reflector } from 'three/addons/objects/Reflector.js';
+import type { IslandState, Quality } from '../../shared/protocol';
 
 // A small, repeatable normal field generated once rather than several per-pixel
 // noise functions. Waves travel in different directions to avoid a checkerboard.
@@ -27,25 +28,32 @@ function createRippleTexture(): THREE.DataTexture {
   texture.generateMipmaps=true;texture.needsUpdate=true;return texture;
 }
 
-export function createOcean(): THREE.Mesh {
-  const geometry=new THREE.PlaneGeometry(600,600,100,100);
-  geometry.rotateX(-Math.PI/2);
-  const material=new THREE.ShaderMaterial({
-    uniforms:{uTime:{value:0},uRipples:{value:createRippleTexture()},uIslands:{value:Array.from({length:6},()=>new THREE.Vector3(0,0,0))}},
+export function createOcean(quality:Quality): Reflector {
+  const geometry=new THREE.PlaneGeometry(600,600,128,128);
+  const size=quality==='high'?512:quality==='medium'?384:192;
+  const rippleTexture=createRippleTexture();
+  const mesh=new Reflector(geometry,{textureWidth:size,textureHeight:size,clipBias:.003,multisample:0,shader:{
+    uniforms:{color:{value:null},tDiffuse:{value:null},textureMatrix:{value:new THREE.Matrix4()},uReflection:{value:quality==='low'?0:1},uTime:{value:0},uRipples:{value:rippleTexture},uIslands:{value:Array.from({length:6},()=>new THREE.Vector3(0,0,0))}},
     vertexShader:`
       uniform float uTime;
+      uniform mat4 textureMatrix;
       varying vec3 vWorld;
+      varying vec4 vReflection;
       void main() {
-        vec3 p=position;
-        p.y=sin(p.x*.13+uTime*.55)*.24+cos(p.z*.19-uTime*.6)*.18+sin((p.x+p.z)*.31+uTime)*.07;
-        vWorld=(modelMatrix*vec4(p,1.)).xyz;
+        vec3 p=(modelMatrix*vec4(position,1.)).xyz;
+        p.y=sin(p.x*.19+p.z*.09+uTime*.9)*.36+cos(p.z*.31-p.x*.08-uTime*1.1)*.22+sin((p.x+p.z)*.59+uTime*1.6)*.085;
+        vWorld=p;
+        vReflection=textureMatrix*vec4(position,1.);
         gl_Position=projectionMatrix*viewMatrix*vec4(vWorld,1.);
       }`,
     fragmentShader:`
       uniform float uTime;
       uniform vec3 uIslands[6];
       uniform sampler2D uRipples;
+      uniform sampler2D tDiffuse;
+      uniform float uReflection;
       varying vec3 vWorld;
+      varying vec4 vReflection;
       float hash(vec2 p) { return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453); }
       float noise(vec2 p) {
         vec2 cell=floor(p),f=fract(p);f=f*f*(3.-2.*f);
@@ -53,10 +61,13 @@ export function createOcean(): THREE.Mesh {
       }
       void main() {
         vec2 p=vWorld.xz;
-        vec3 waveA=texture2D(uRipples,p/96.+vec2(uTime*.003,-uTime*.0017)).rgb;
-        vec3 waveB=texture2D(uRipples,vec2(p.y,-p.x)/53.+vec2(-uTime*.002,uTime*.004)).rgb;
-        vec2 ripple=(waveA.rg-.5)*.20+(waveB.rg-.5)*.10;
-        vec3 n=normalize(vec3(-cos(p.x*.13+uTime*.55)*.13*.24+ripple.x,1.,sin(p.y*.19-uTime*.6)*.19*.18+ripple.y));
+        vec3 waveA=texture2D(uRipples,p/73.+vec2(uTime*.004,-uTime*.0027)).rgb;
+        vec3 waveB=texture2D(uRipples,vec2(p.y,-p.x)/29.+vec2(-uTime*.003,uTime*.005)).rgb;
+        vec3 detail=texture2D(uRipples,p/9.+vec2(uTime*.008,uTime*.002)).rgb;
+        vec2 ripple=(waveA.rg-.5)*.55+(waveB.rg-.5)*.26+(detail.rg-.5)*.075;
+        float swellX=cos(p.x*.19+p.y*.09+uTime*.9)*.36;
+        float swellZ=-sin(p.y*.31-p.x*.08-uTime*1.1)*.22;
+        vec3 n=normalize(vec3(-swellX*.19+swellZ*.08+ripple.x,1.,-swellX*.09-swellZ*.31+ripple.y));
         float shore=0.,foam=0.;
         for(int i=0;i<6;i++) {
           if(uIslands[i].z>.1) {
@@ -68,27 +79,54 @@ export function createOcean(): THREE.Mesh {
             float radius=uIslands[i].z*(.89+.05*sin(angle*3.+phase)+.04*cos(angle*5.-phase)+.025*sin(angle*9.+phase));
             float d=length(delta)-radius;
             shore=max(shore,1.-smoothstep(0.,5.,d));
-            float crest=abs(d-.36-sin(angle*14.+uTime*1.2)*.17);
-            foam=max(foam,(1.-smoothstep(.06,.21,crest))*(.20+.60*noise(p*1.4+uTime*.08)));
+            float breakup=noise(p*1.2+vec2(uTime*.12,-uTime*.08));
+            float pulse=fract(uTime*.18+noise(p*.19)*.35);
+            float crest=abs(d-.15-pulse*1.9-breakup*.35);
+            float surf=(1.-smoothstep(.06,.45,crest))*(1.-pulse)*smoothstep(.27,.72,breakup);
+            float wash=exp(-abs(d)*1.6)*smoothstep(.42,.83,waveB.b)*.45;
+            foam=max(foam,surf+wash);
           }
         }
         float swell=.5+.5*sin(p.x*.047-p.y*.083+uTime*.12);
-        vec3 water=mix(vec3(.006,.035,.068),vec3(.010,.11,.16),swell*.55+.20);
-        water=mix(water,vec3(.018,.22,.21),shore*.84);
+        vec3 water=mix(vec3(.006,.040,.068),vec3(.010,.105,.135),swell*.45+.25);
+        water=mix(water,vec3(.018,.26,.235),shore*.72);
         vec3 viewDirection=normalize(cameraPosition-vWorld);
-        vec3 sunlight=normalize(vec3(-.25,.82,-.55));
-        float specular=pow(max(dot(reflect(-sunlight,n),viewDirection),0.),110.);
-        float sparkle=smoothstep(.69,.93,waveA.b*waveB.b+.21)*.16;
-        water+=vec3(.90,.84,.65)*specular*.30+vec3(.24,.43,.47)*sparkle;
-        float fresnel=pow(1.-max(dot(viewDirection,n),0.),4.);
-        water=mix(water,vec3(.26,.44,.51),fresnel*.45);
-        water=mix(water,vec3(.63,.79,.72),foam);
+        vec3 sunlight=normalize(vec3(-.45,.7,-.3));
+        float specular=pow(max(dot(reflect(-sunlight,n),viewDirection),0.),150.);
+        float fresnel=.035+.965*pow(1.-max(dot(viewDirection,n),0.),5.);
+        vec2 reflectionUv=vReflection.xy/vReflection.w;
+        reflectionUv+=n.xz*.016;
+        vec3 reflected=texture2D(tDiffuse,clamp(reflectionUv,vec2(.001),vec2(.999))).rgb;
+        vec3 reflectedSky=mix(vec3(.17,.31,.37),vec3(.50,.69,.72),fresnel);
+        reflected=mix(reflectedSky,reflected,uReflection);
+        water=mix(water,reflected,clamp(.055+fresnel*.72,0.,.8));
+        water+=vec3(1.,.89,.65)*specular*.65;
+        float crestLight=smoothstep(.66,.91,waveA.b)*smoothstep(.56,.83,detail.b);
+        water+=vec3(.09,.15,.16)*crestLight*.32;
+        water=mix(water,vec3(.67,.80,.76),clamp(foam*.75,0.,.85));
+        float haze=smoothstep(130.,280.,distance(cameraPosition,vWorld));
+        water=mix(water,vec3(.36,.55,.57),haze*.6);
         gl_FragColor=vec4(water,1.);
         #include <tonemapping_fragment>
         #include <colorspace_fragment>
       }`,
-  });
-  const mesh=new THREE.Mesh(geometry,material);mesh.name='procedural reflective sea';return mesh;
+  }});
+  mesh.rotation.x=-Math.PI/2;mesh.name='procedural reflective sea';
+  const material=mesh.material as THREE.ShaderMaterial;
+  // UniformsUtils clones textures; release the temporary source texture.
+  rippleTexture.dispose();
+  const reflect=mesh.onBeforeRender;
+  let previous=-Infinity;
+  mesh.onBeforeRender=function(renderer,scene,camera,geometry,materialArg,group) {
+    const now=performance.now();
+    if(quality==='low'||now-previous<(quality==='high'?33:60))return;
+    previous=now;
+    const hidden:THREE.Object3D[]=[];
+    scene.traverse(object=>{if(object.userData.skipReflection&&object.visible){object.visible=false;hidden.push(object);}});
+    try{reflect.call(mesh,renderer,scene,camera,geometry,materialArg,group);}finally{hidden.forEach(object=>object.visible=true);}
+    material.uniforms.uReflection.value=1;
+  };
+  return mesh;
 }
 
 function islandBand(radius:number,inner:number,outer:number,low:number,high:number,phase:number): THREE.BufferGeometry {

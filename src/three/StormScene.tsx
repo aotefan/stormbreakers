@@ -1,8 +1,9 @@
 import { useEffect, useRef } from 'react';
 import * as THREE from 'three';
 import type { BoatState, GameEvent, GameState, Quality, Vec2 } from '../../shared/protocol';
-import { createWarship } from './warship';
+import { createWarship, updateWarshipCaptain } from './warship';
 import { createHorizon, createOcean, createRockIsland } from './ocean';
+import { SUPPLY_BOX_LIFETIME } from '../../shared/simulation';
 
 interface Props {
   state: GameState | null;
@@ -69,11 +70,11 @@ export default function StormScene({ state, boatId, quality, dragTarget, onWorld
     const hemi = new THREE.HemisphereLight('#d8f5ff', '#35575c', 1.9);
     scene.add(hemi);
     const sun = new THREE.DirectionalLight('#fff1d1', 2.3);
-    sun.position.set(-45, 70, 30);
+    sun.position.set(-45, 70, -30);
     sun.castShadow = true;
     scene.add(sun);
 
-    const water = createOcean();
+    const water = createOcean(quality);
     scene.add(water);
     scene.add(createHorizon());
 
@@ -83,6 +84,7 @@ export default function StormScene({ state, boatId, quality, dragTarget, onWorld
     );
     targetMarker.rotation.x = -Math.PI / 2;
     targetMarker.visible = false;
+    targetMarker.userData.skipReflection=true;
     scene.add(targetMarker);
 
     const runtime = {
@@ -151,26 +153,31 @@ export default function StormScene({ state, boatId, quality, dragTarget, onWorld
     resize();
 
     let raf = 0;
-    const animate = (time: number) => {
+    let previousSimulationTime=0;
+    const animate = () => {
       raf = requestAnimationFrame(animate);
-      (runtime.water.material as THREE.ShaderMaterial).uniforms.uTime.value = time * .001;
+      const simulationTime=runtime.water.userData.simulationTime??0;
+      const dt=Math.min(.1,Math.max(0,simulationTime-previousSimulationTime));
+      previousSimulationTime=simulationTime;
+      (runtime.water.material as THREE.ShaderMaterial).uniforms.uTime.value = simulationTime;
       for (const particle of runtime.particles) {
-        particle.life -= 0.016;
-        particle.mesh.position.x += particle.vx * 0.016;
-        particle.mesh.position.z += particle.vz * 0.016;
-        particle.mesh.position.y += particle.vy * 0.016;
-        particle.mesh.scale.multiplyScalar(1.012);
+        particle.life -= dt;
+        particle.mesh.position.x += particle.vx * dt;
+        particle.mesh.position.z += particle.vz * dt;
+        particle.mesh.position.y += particle.vy * dt;
+        particle.mesh.scale.multiplyScalar(Math.pow(1.012,dt*60));
         const mat = getMaterial(particle.mesh);
         if (mat) mat.opacity = Math.max(0, particle.life / particle.max);
       }
       runtime.particles = runtime.particles.filter((particle) => {
         if (particle.life > 0) return true;
         scene.remove(particle.mesh);
+        disposeObject(particle.mesh);
         return false;
       });
       renderer.render(scene, camera);
     };
-    animate(0);
+    animate();
 
     return () => {
       cancelAnimationFrame(raf);
@@ -195,6 +202,7 @@ export default function StormScene({ state, boatId, quality, dragTarget, onWorld
       materials.forEach((material) => material.dispose());
       geometries.forEach((geometry) => geometry.dispose());
       mount.removeChild(renderer.domElement);
+      water.getRenderTarget().dispose();
       renderer.dispose();
     };
   }, [quality]);
@@ -202,6 +210,7 @@ export default function StormScene({ state, boatId, quality, dragTarget, onWorld
   useEffect(() => {
     const runtime = runtimeRef.current;
     if (!runtime || !state) return;
+    runtime.water.userData.simulationTime=state.now;
     syncIslands(runtime, state);
     syncChests(runtime, state);
     syncStorms(runtime, state);
@@ -230,9 +239,10 @@ export default function StormScene({ state, boatId, quality, dragTarget, onWorld
 
 
 function makeBoat(boat: BoatState): BoatRender {
-  const group = createWarship(boat.color);
+  const group = createWarship(boat.color,boat.name);
   const hp = new THREE.Mesh(new THREE.BoxGeometry(4.2, 0.12, 0.12), new THREE.MeshBasicMaterial({ color: '#7df2b7' }));
   hp.position.set(0, 19, 0);
+  hp.userData.skipReflection=true;
   group.add(hp);
   const canvas = document.createElement('canvas');
   canvas.width = 64;canvas.height = 256;
@@ -251,6 +261,7 @@ function makeBoat(boat: BoatState): BoatRender {
     }
     const material = new THREE.MeshBasicMaterial({ color: '#f4fff7', map: wakeTexture, transparent: true, opacity: .44, side: THREE.DoubleSide, depthWrite: false });
     const mesh = new THREE.Mesh(geometry, material);
+    mesh.userData.skipReflection=true;
     mesh.position.set(0, .35, -12.5);group.add(mesh);return mesh;
   });
   return { group, hp, wake };
@@ -262,6 +273,7 @@ function syncBoats(runtime: SceneRuntime, state: GameState, playerBoatId: string
   for (const [id, render] of runtime.boats) {
     if (!ids.has(id)) {
       runtime.scene.remove(render.group);
+      disposeObject(render.group);
       runtime.boats.delete(id);
     }
   }
@@ -272,6 +284,7 @@ function syncBoats(runtime: SceneRuntime, state: GameState, playerBoatId: string
       runtime.boats.set(boat.id, render);
       runtime.scene.add(render.group);
     }
+    updateWarshipCaptain(render.group,boat.name);
     render.group.position.set(boat.x, bob(state.now + boat.x), boat.z);
     render.group.rotation.y = boat.angle;
     render.group.rotation.x = Math.sin(state.now * 1.4 + boat.x) * .012;
@@ -294,6 +307,7 @@ function syncBalls(runtime: SceneRuntime, state: GameState) {
   for (const [id, mesh] of runtime.balls) {
     if (!ids.has(id)) {
       runtime.scene.remove(mesh);
+      disposeObject(mesh);
       runtime.balls.delete(id);
     }
   }
@@ -313,6 +327,7 @@ function syncChests(runtime: SceneRuntime, state: GameState) {
   for (const [id, chest] of runtime.chests) {
     if (!ids.has(id)) {
       runtime.scene.remove(chest);
+      disposeObject(chest);
       runtime.chests.delete(id);
     }
   }
@@ -324,11 +339,18 @@ function syncChests(runtime: SceneRuntime, state: GameState) {
       const lid = new THREE.Mesh(new THREE.BoxGeometry(2.05, 0.22, 1.5), new THREE.MeshStandardMaterial({ color: '#f0b84b', metalness: 0.35 }));
       lid.position.y = 0.68;
       mesh.add(box, lid);
+      const ring=new THREE.Mesh(new THREE.RingGeometry(1.5,1.7,40),new THREE.MeshBasicMaterial({color:'#f0b84b',transparent:true,opacity:.8,side:THREE.DoubleSide,depthWrite:false}));
+      ring.rotation.x=-Math.PI/2;ring.position.y=-.65;ring.name='supply-expiry';ring.userData.skipReflection=true;mesh.add(ring);
       runtime.chests.set(chest.id, mesh);
       runtime.scene.add(mesh);
     }
     mesh.position.set(chest.x, 1.2 + Math.sin(state.now * 2 + chest.x) * 0.2, chest.z);
     mesh.rotation.y += 0.012;
+    const remaining=Math.max(0,chest.expiresAt-state.now);
+    const ring=mesh.getObjectByName('supply-expiry') as THREE.Mesh<THREE.RingGeometry,THREE.MeshBasicMaterial>;
+    ring.geometry.setDrawRange(0,Math.ceil(remaining/SUPPLY_BOX_LIFETIME*40)*6);
+    ring.material.color.set(remaining<6?'#ff8a59':'#f0b84b');
+    ring.material.opacity=remaining<6?.4+.4*Math.abs(Math.sin(state.now*5)):.8;
   }
 }
 
@@ -337,6 +359,7 @@ function syncStorms(runtime: SceneRuntime, state: GameState) {
   for (const [id, storm] of runtime.storms) {
     if (!ids.has(id)) {
       runtime.scene.remove(storm);
+      disposeObject(storm);
       runtime.storms.delete(id);
     }
   }
@@ -384,6 +407,7 @@ function burst(runtime: SceneRuntime, x: number, y: number, z: number, color: st
       new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.85 }),
     );
     mesh.position.set(x, y, z);
+    mesh.userData.skipReflection=true;
     runtime.scene.add(mesh);
     const a = Math.random() * Math.PI * 2;
     const s = 2 + Math.random() * 8;
@@ -395,6 +419,17 @@ function getMaterial(object: THREE.Object3D): THREE.Material | undefined {
   if (!('material' in object)) return undefined;
   const material = object.material as THREE.Material | THREE.Material[];
   return Array.isArray(material) ? material[0] : material;
+}
+
+function disposeObject(object:THREE.Object3D):void {
+  const materials=new Set<THREE.Material>(),textures=new Set<THREE.Texture>();
+  object.traverse(child=>{
+    if(!(child instanceof THREE.Mesh||child instanceof THREE.Line))return;
+    child.geometry.dispose();
+    for(const material of Array.isArray(child.material)?child.material:[child.material])materials.add(material);
+  });
+  for(const material of materials){for(const value of Object.values(material))if(value instanceof THREE.Texture)textures.add(value);material.dispose();}
+  textures.forEach(texture=>texture.dispose());
 }
 
 function bob(t: number): number {
