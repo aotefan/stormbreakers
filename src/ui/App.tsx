@@ -437,7 +437,7 @@ function BattleScreen({ session, onExit, labels, quality, volume, muted }: Battl
     <main className="battle-shell">
       <StormScene state={battle.state} boatId={battle.boatId} quality={quality} dragTarget={dragTarget} onWorldPointer={onWorldPointer} />
       <section className="hud top-left">
-        <strong>{MODE_LABELS[session.mode].zh} / {MODE_LABELS[session.mode].en}</strong>
+        <strong>{MODE_LABELS[battle.state?.mode ?? session.mode].zh} / {MODE_LABELS[battle.state?.mode ?? session.mode].en}</strong>
         <span>
           {battle.connected ? labels.authoritative : labels.connecting} · {battle.roomCode || '...'}
         </span>
