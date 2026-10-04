@@ -2,6 +2,16 @@
 
 React + TypeScript + Three.js naval battle game with a Node.js authoritative WebSocket server.
 
+## Controls and supplies
+
+- WASD sails; hold Q/E or either cannon button for repeated port/starboard fire. On touch, drag your ship and hold a second finger on either half of the sea to fire. Release stops firing; releasing the drag stops the ship.
+- Only human players collect floating supplies. Normal crates progress through 2 balls (+20%), 3 balls (+50%, 0.65s reload), then 5 explosive balls (+100%, 0.35s reload). Orange large crates grant maximum power immediately.
+- Power lasts 15 seconds; further pickups refresh it. Crates expire and replenish after 30 seconds. Sinking, expiry and AI takeover clear power.
+- Every ship shows sail tears, scorched wood and a list proportional to lost health. R repairs 30 HP and restores the corresponding appearance; full repair or respawn restores the intact ship.
+- Cannon hits leave localized ragged hull breaches and burnt edges. Sunk ships list and descend over 5 seconds with foam, an expanding wake and floating planks; pause freezes the effect and respawn clears damage.
+- Space boosts while sailing (+50% maximum speed for 1.4s, 9s cooldown). F immediately readies both cannons (18s cooldown); R repairs with a 14s cooldown. Buttons show effects, remaining cooldown and unavailable reasons; idle boost, full-health repair and unnecessary reload do not consume cooldowns.
+- Solo pause freezes the simulation. Pause, window blur and touch cancellation clear held controls.
+
 ## Local
 
 ```bash

@@ -12,10 +12,13 @@
     "test:state": "tsx scripts/state-test.ts",
     "test:ai": "node --import tsx scripts/ai-behavior-test.ts",
     "test:firepower": "node --import tsx scripts/firepower-test.ts",
+    "test:rapid-supply": "node --import tsx scripts/rapid-supply-test.ts",
+    "test:abilities": "node --import tsx scripts/ability-test.ts",
+    "test:damage": "node --import tsx scripts/damage-test.ts",
     "test:visual": "tsx scripts/visual-test.ts",
     "test:touch": "tsx scripts/touch-stop-test.ts",
     "test:touch-visual": "node scripts/touch-visual-test.mjs",
-    "test": "npm run build && npm run test:ai && npm run test:firepower && npm run test:touch && npm run test:state && npm run test:visual && npm run test:touch-visual"
+    "test": "npm run build && npm run test:ai && npm run test:firepower && npm run test:rapid-supply && npm run test:abilities && npm run test:damage && npm run test:touch && npm run test:state && npm run test:visual && npm run test:touch-visual"
   },
   "dependencies": {
     "@vitejs/plugin-react": "^5.0.3",

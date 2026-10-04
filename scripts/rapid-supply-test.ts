@@ -1,0 +1,42 @@
+import assert from 'node:assert/strict';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { addBoat, createGameState, removeHumanToAi, stepGame } from '../shared/simulation';
+import type { ChestState, PlayerInput } from '../shared/protocol';
+
+const s=createGameState({roomCode:'RAPID',mode:'battle',aiCount:0});s.islands=[];
+const bot=addBoat(s,{name:'Enemy',ai:true});Object.assign(bot,{x:0,z:-60,hp:50});
+const box=(kind:ChestState['kind']='normal')=>({id:`qa-${s.tick}-${kind}`,x:0,z:-60,expiresAt:s.now+30,kind});
+const first=box();s.chests=[first];
+stepGame(s,.01,new Map(),'easy');
+assert(s.chests.some(c=>c.id===first.id),'AI must leave the supply crate for humans');
+assert.equal(bot.hp,50);assert.equal(bot.score,0);assert.equal(bot.salvoCount,1);
+const b=addBoat(s,{name:'Captain',ai:false,playerId:'p'});Object.assign(b,{x:0,z:-60,angle:0});Object.assign(bot,{x:85,z:85});
+let input:PlayerInput={seq:1,throttle:0,turn:0,stop:true};
+const events:unknown[]=[];
+function step(seconds:number){for(let remaining=seconds;remaining>1e-6;remaining-=.01){stepGame(s,Math.min(.01,remaining),new Map([['p',input]]),'easy');events.push(...s.events.filter(e=>e.boatId===b.id));}}
+step(.01);assert.equal(b.weaponLevel,1);assert.equal(b.salvoCount,2);
+step(1);s.chests=[box()];step(.01);assert.equal(b.weaponLevel,2);assert.equal(b.salvoCount,3);
+b.cooldownLeft=0;input={...input,fireLeft:true};const start=events.length;step(2);
+const rapid=events.slice(start).filter((e:any)=>e.type==='fire').length;assert(rapid>=3,'holding fires repeated volleys without new input');
+assert(s.cannonballs.filter(c=>c.ownerId===b.id).every(c=>c.damage===51));
+input={...input,fireLeft:false};s.chests=[box()];step(.01);assert.equal(b.weaponLevel,3);assert.equal(b.salvoCount,5);
+const firstExpiry=b.powerUntil;step(1);s.chests=[box()];step(.01);assert.equal(b.weaponLevel,3);assert(b.powerUntil>firstExpiry,'pickup refreshes power');
+b.cooldownLeft=0;input={...input,fireLeft:true};const maxStart=events.length;step(2);
+const maxVolleys=events.slice(maxStart).filter((e:any)=>e.type==='fire').length;assert(maxVolleys>=5&&maxVolleys<=6);
+assert(s.cannonballs.filter(c=>c.ownerId===b.id).every(c=>c.damage===68&&c.explosive));
+input={...input,fireLeft:false};const release=events.length;step(1);assert.equal(events.slice(release).filter((e:any)=>e.type==='fire').length,0,'release stops volleys');
+const frozen=JSON.stringify(s);s.running=false;const paused=JSON.stringify(s);step(20);assert.equal(JSON.stringify(s),paused);s.running=true;
+step(16);assert.equal(b.weaponLevel,0);assert.equal(b.salvoCount,1);
+s.chests=[box('large')];step(.01);assert.equal(b.weaponLevel,3,'large crate grants maximum power immediately');
+removeHumanToAi(s,'p');assert.equal(b.weaponLevel,0);assert.equal(b.salvoCount,1);assert.equal(b.powerUntil,0,'AI takeover clears power');
+const human=addBoat(s,{name:'Next captain',playerId:'next',ai:false,replaceAi:true});assert.equal(human.weaponLevel,0);
+const initial=createGameState({roomCode:'SPAWN',mode:'battle',aiCount:0});assert(initial.chests.some(c=>c.kind==='large'));assert(initial.chests.some(c=>c.kind==='normal'));
+// A single heavy projectile directly damages one boat and splashes its nearby ally.
+const splash=createGameState({roomCode:'SPLASH',mode:'battle',aiCount:0});splash.islands=[];
+const shooter=addBoat(splash,{name:'Shooter',playerId:'a',ai:false});Object.assign(shooter,{x:-60,z:-60});
+const target=addBoat(splash,{name:'Target',playerId:'b',ai:false});Object.assign(target,{x:0,z:-60});
+const ally=addBoat(splash,{name:'Nearby',playerId:'c',ai:false});Object.assign(ally,{x:0,z:-53.3});
+splash.cannonballs=[{id:'heavy',ownerId:shooter.id,x:0,z:-60,vx:0,vz:0,ttl:1,side:'left',damage:68,explosive:true}];
+stepGame(splash,.01,new Map(),'normal');assert.equal(target.hp,32);assert.equal(ally.hp,80);assert(splash.events.some(e=>e.type==='explosion'));
+const report={aiCannotCollect:true,levels:[{level:1,count:2,damage:41},{level:2,count:3,damage:51,volleysIn2s:rapid},{level:3,count:5,damage:68,volleysIn2s:maxVolleys}],largeCrateMax:true,releaseStops:true,pauseFreezes:true,expiryResets:true,takeoverClears:true,splashDamage:20};
+mkdirSync('test-output/rapid-supply',{recursive:true});writeFileSync('test-output/rapid-supply/rules.json',JSON.stringify(report,null,2));console.log('RAPID_SUPPLY_PASS',report);

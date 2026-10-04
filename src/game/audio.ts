@@ -20,8 +20,11 @@ export class ProceduralAudio {
       if (event.type === 'fire') this.boom(95, 0.18);
       if (event.type === 'hit') this.noise(0.18, 900, 0.12);
       if (event.type === 'sink') this.noise(0.45, 150, 0.38);
+      if (event.type === 'explosion') this.noise(.3, 240, .28);
       if (event.type === 'chest') this.chime();
       if (event.type === 'repair') this.chime(480);
+      if (event.type === 'reload') this.chime(780);
+      if (event.type === 'boost') this.noise(.2, 480, .1);
     }
   }
 

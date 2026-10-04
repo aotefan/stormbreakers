@@ -32,6 +32,7 @@ export interface BoatState {
   angle: number;
   hp: number;
   maxHp: number;
+  hullHits: { side: number; z: number; damage: number }[];
   score: number;
   sunkUntil: number;
   cooldownLeft: number;
@@ -41,6 +42,7 @@ export interface BoatState {
   supplyCooldown: number;
   boostTime: number;
   salvoCount: number;
+  weaponLevel: number;
   powerUntil: number;
   color: string;
   lastInputSeq: number;
@@ -56,6 +58,7 @@ export interface CannonballState {
   ttl: number;
   side: 'left' | 'right';
   damage: number;
+  explosive: boolean;
 }
 
 export interface ChestState {
@@ -63,6 +66,7 @@ export interface ChestState {
   x: number;
   z: number;
   expiresAt: number;
+  kind: 'normal' | 'large';
 }
 
 export interface StormCellState {
@@ -105,7 +109,9 @@ export type GameEvent =
   | { type: 'sink'; boatId: string; targetId: string; x: number; z: number }
   | { type: 'chest'; boatId: string; x: number; z: number }
   | { type: 'respawn'; boatId: string; x: number; z: number }
-  | { type: 'repair'; boatId: string; x: number; z: number };
+  | { type: 'repair'; boatId: string; x: number; z: number; healing?: number }
+  | { type: 'boost' | 'reload'; boatId: string; x: number; z: number }
+  | { type: 'explosion'; boatId: string; x: number; z: number };
 
 export type ClientMessage =
   | { type: 'join'; nickname: string; mode: Mode; difficulty: Difficulty; roomCode?: string; create?: boolean; testDuration?: number }

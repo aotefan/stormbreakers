@@ -40,10 +40,6 @@ export function getAiInput(state:GameState,boat:BoatState,difficulty:Difficulty)
     steering={x:toward.x*radial+toward.z*helm.orbit,z:toward.z*radial-toward.x*helm.orbit};
     goal={x:boat.x+steering.x*22,z:boat.z+steering.z*22};
   } else steering=unit(goal.x-boat.x,goal.z-boat.z);
-  const chest=[...state.chests].sort((a,b)=>distance(a,boat)-distance(b,boat))[0];
-  if(state.mode==='treasure'&&chest&&(!enemy||distance(chest,boat)<distance(enemy,boat)*.85)) {
-    goal=chest;steering=unit(goal.x-boat.x,goal.z-boat.z);
-  }
   if(state.mode==='storm')for(const storm of state.storms)if(distance(storm,boat)<storm.radius+9) {
     const away=unit(boat.x-storm.x,boat.z-storm.z);steering={x:away.x*2,z:away.z*2};
     goal={x:boat.x+away.x*30,z:boat.z+away.z*30};break;

@@ -12,14 +12,16 @@ import type {
   Vec2,
 } from './protocol';
 import { getAiInput } from './ai';
+import { clearWeaponPower, WEAPONS, weaponLevel } from './weapons';
+import { ABILITIES, canBoost } from './abilities';
 
 const FIELD = 96;
 const BOAT_RADIUS = 3.2;
 const CANNON_RANGE_SECONDS = 1.45;
 const CANNON_SPEED = 58;
-const DAMAGE = 34;
 export const SUPPLY_DURATION = 15;
 export const SUPPLY_BOX_LIFETIME = 30;
+export const RESPAWN_SECONDS = 5;
 const COLORS = ['#d64d3f', '#f0b84b', '#54b7c9', '#9de06f', '#b986ff', '#f27fb2'];
 const NAMES = ['Tina', 'Azure', 'Harbor', 'Coral', 'Mistral', 'Lantern'];
 
@@ -111,8 +113,10 @@ export function addBoat(
     boat.name = options.name;
     boat.ai = options.ai;
     boat.hp = boat.maxHp;
+    boat.hullHits = [];
     boat.sunkUntil = 0;
     boat.lastInputSeq = 0;
+    clearWeaponPower(boat);
     stopBoatMotion(boat);
     return boat;
   }
@@ -131,6 +135,7 @@ export function addBoat(
     angle,
     hp: 100,
     maxHp: 100,
+    hullHits: [],
     score: 0,
     sunkUntil: 0,
     cooldownLeft: 0,
@@ -140,6 +145,7 @@ export function addBoat(
     supplyCooldown: 0,
     boostTime: 0,
     salvoCount: 1,
+    weaponLevel: 0,
     powerUntil: 0,
     color: COLORS[state.boats.length % COLORS.length],
     lastInputSeq: 0,
@@ -153,6 +159,7 @@ export function removeHumanToAi(state: GameState, playerId: string): void {
   if (!boat) return;
   boat.playerId = undefined;
   boat.ai = true;
+  clearWeaponPower(boat);
   boat.name = `${boat.name.replace(/\s*\(AI\)$/u, '')} (AI)`;
 }
 
@@ -161,7 +168,9 @@ export function seedChests(state: GameState): void {
   while (state.chests.length < wanted) {
     const p = randPos();
     if (state.islands.every((island) => dist(p, island) > island.radius + 6)) {
-      state.chests.push({ id: `chest-${Math.random().toString(36).slice(2, 9)}`, x: p.x, z: p.z, expiresAt:state.now+SUPPLY_BOX_LIFETIME });
+      const largeCount=state.chests.filter(c=>c.kind==='large').length;
+      const kind=largeCount < (state.mode==='treasure'?2:1) ? 'large' : 'normal';
+      state.chests.push({ id: `chest-${Math.random().toString(36).slice(2, 9)}`, x: p.x, z: p.z, expiresAt:state.now+SUPPLY_BOX_LIFETIME, kind });
     }
   }
 }
@@ -203,7 +212,7 @@ function idleInput(seq: number): PlayerInput {
 }
 
 function updateBoat(state: GameState, boat: BoatState, input: PlayerInput, dt: number): void {
-  if(state.now>=boat.powerUntil){boat.salvoCount=1;boat.powerUntil=0;}
+  if(boat.ai||state.now>=boat.powerUntil)clearWeaponPower(boat);
   boat.cooldownLeft = Math.max(0, boat.cooldownLeft - dt);
   boat.cooldownRight = Math.max(0, boat.cooldownRight - dt);
   boat.boostCooldown = Math.max(0, boat.boostCooldown - dt);
@@ -221,25 +230,30 @@ function updateBoat(state: GameState, boat: BoatState, input: PlayerInput, dt: n
       boat.z = p.z;
       boat.angle = Math.atan2(-p.x,-p.z);
       boat.hp = boat.maxHp;
+      boat.hullHits = [];
       boat.sunkUntil = 0;
       state.events.push({ type: 'respawn', boatId: boat.id, x: boat.x, z: boat.z });
     }
     return;
   }
 
-  if (input.boost && boat.boostCooldown <= 0) {
-    boat.boostTime = 1.4;
-    boat.boostCooldown = 9;
+  if (input.boost && boat.boostCooldown <= 0 && canBoost(boat, input)) {
+    boat.boostTime = ABILITIES.boost.duration;
+    boat.boostCooldown = ABILITIES.boost.cooldown;
+    state.events.push({ type: 'boost', boatId: boat.id, x: boat.x, z: boat.z });
   }
   if (input.repair && boat.repairCooldown <= 0 && boat.hp < boat.maxHp) {
-    boat.hp = Math.min(boat.maxHp, boat.hp + 30);
-    boat.repairCooldown = 14;
-    state.events.push({ type: 'repair', boatId: boat.id, x: boat.x, z: boat.z });
+    const healing = Math.min(ABILITIES.repair.healing, boat.maxHp - boat.hp);
+    boat.hp += healing;
+    if (boat.hp >= boat.maxHp) boat.hullHits = [];
+    boat.repairCooldown = ABILITIES.repair.cooldown;
+    state.events.push({ type: 'repair', boatId: boat.id, x: boat.x, z: boat.z, healing });
   }
-  if (input.supply && boat.supplyCooldown <= 0) {
+  if (input.supply && boat.supplyCooldown <= 0 && (boat.cooldownLeft > 0 || boat.cooldownRight > 0)) {
     boat.cooldownLeft = 0;
     boat.cooldownRight = 0;
-    boat.supplyCooldown = 18;
+    boat.supplyCooldown = ABILITIES.supply.cooldown;
+    state.events.push({ type: 'reload', boatId: boat.id, x: boat.x, z: boat.z });
   }
 
   if (input.fireLeft) fireCannon(state, boat, 'left');
@@ -346,13 +360,14 @@ function moveBoat(state: GameState, boat: BoatState, input: PlayerInput, dt: num
 function fireCannon(state: GameState, boat: BoatState, side: 'left' | 'right'): void {
   const key = side === 'left' ? 'cooldownLeft' : 'cooldownRight';
   if (boat[key] > 0 || boat.hp <= 0) return;
-  boat[key] = 3;
+  const weapon=WEAPONS[weaponLevel(boat,state.now)];
+  boat[key] = weapon.reload;
   // Forward is local +Z: port is +X and starboard is -X.
   const sign = side === 'left' ? 1 : -1;
   const sideAngle = boat.angle + sign * Math.PI * 0.5;
   const muzzleX = boat.x + Math.sin(sideAngle) * 4.5 + Math.sin(boat.angle) * 0.6;
   const muzzleZ = boat.z + Math.cos(sideAngle) * 4.5 + Math.cos(boat.angle) * 0.6;
-  const count=boat.powerUntil>state.now?boat.salvoCount:1;
+  const count=weapon.count;
   for(let i=0;i<count;i++) {
   const shotAngle=sideAngle+(i-(count-1)/2)*.09;
   state.cannonballs.push({
@@ -364,7 +379,8 @@ function fireCannon(state: GameState, boat: BoatState, side: 'left' | 'right'): 
     vz: Math.cos(shotAngle) * CANNON_SPEED + boat.vz * 0.25,
     ttl: CANNON_RANGE_SECONDS,
     side,
-    damage:count>1?Math.round(DAMAGE*1.2):DAMAGE,
+    damage:weapon.damage,
+    explosive:weapon.explosive,
   });
   }
   state.events.push({ type: 'fire', boatId: boat.id, side, x: muzzleX, z: muzzleZ, angle: sideAngle });
@@ -380,8 +396,19 @@ function updateCannonballs(state: GameState, dt: number): void {
     const target = state.boats.find((boat) => boat.id !== ball.ownerId && boat.hp > 0 && dist({ x: ball.x, z: ball.z }, boat) < BOAT_RADIUS + 1.2);
     if (target) {
       target.hp -= ball.damage;
+      recordHullHit(target, ball, ball.damage);
       state.events.push({ type: 'hit', boatId: ball.ownerId, targetId: target.id, x: ball.x, z: ball.z });
       if (target.hp <= 0) sinkBoat(state, ball.ownerId, target);
+      if(ball.explosive) {
+        state.events.push({type:'explosion',boatId:ball.ownerId,x:ball.x,z:ball.z});
+        for(const nearby of state.boats) {
+          if(nearby.id===ball.ownerId||nearby.id===target.id||nearby.hp<=0||dist(nearby,ball)>7)continue;
+          nearby.hp-=20;
+          recordHullHit(nearby, ball, 20);
+          state.events.push({type:'hit',boatId:ball.ownerId,targetId:nearby.id,x:nearby.x,z:nearby.z});
+          if(nearby.hp<=0)sinkBoat(state,ball.ownerId,nearby);
+        }
+      }
       continue;
     }
     next.push(ball);
@@ -389,13 +416,20 @@ function updateCannonballs(state: GameState, dt: number): void {
   state.cannonballs = next;
 }
 
+function recordHullHit(boat: BoatState, point: Vec2, damage: number): void {
+  const dx = point.x - boat.x, dz = point.z - boat.z;
+  const localX = dx * Math.cos(boat.angle) - dz * Math.sin(boat.angle);
+  const localZ = dx * Math.sin(boat.angle) + dz * Math.cos(boat.angle);
+  boat.hullHits.push({ side: localX < 0 ? -1 : 1, z: clamp(localZ, -5.8, 5.8), damage });
+  if (boat.hullHits.length > 8) boat.hullHits.shift();
+}
+
 function sinkBoat(state: GameState, attackerId: string | undefined, target: BoatState): void {
   target.hp = 0;
-  target.sunkUntil = state.now + 5;
+  target.sunkUntil = state.now + RESPAWN_SECONDS;
   target.vx = 0;
   target.vz = 0;
-  target.salvoCount=1;
-  target.powerUntil=0;
+  clearWeaponPower(target);
   const attacker = state.boats.find((boat) => boat.id === attackerId);
   if (attacker) attacker.score += 100;
   state.events.push({ type: 'sink', boatId: attackerId ?? target.id, targetId: target.id, x: target.x, z: target.z });
@@ -405,12 +439,17 @@ function collectChests(state: GameState): void {
   const remaining: ChestState[] = [];
   for (const chest of state.chests) {
     if(state.now>=chest.expiresAt)continue;
-    const boat = state.boats.find((candidate) => candidate.hp > 0 && dist(chest, candidate) < BOAT_RADIUS + 2);
+    const boat = state.boats.find((candidate) => !candidate.ai && candidate.hp > 0 && dist(chest, candidate) < BOAT_RADIUS + 2);
     if (boat) {
       boat.score += state.mode === 'treasure' ? 45 : 35;
       boat.hp = Math.min(boat.maxHp, boat.hp + 10);
-      boat.salvoCount=Math.min(3,(boat.powerUntil>state.now?boat.salvoCount:1)+1);
+      if (boat.hp >= boat.maxHp) boat.hullHits = [];
+      boat.weaponLevel=chest.kind==='large'?3:Math.min(3,weaponLevel(boat,state.now)+1);
+      const weapon=WEAPONS[boat.weaponLevel];
+      boat.salvoCount=weapon.count;
       boat.powerUntil=state.now+SUPPLY_DURATION;
+      boat.cooldownLeft=Math.min(boat.cooldownLeft,weapon.reload);
+      boat.cooldownRight=Math.min(boat.cooldownRight,weapon.reload);
       state.events.push({ type: 'chest', boatId: boat.id, x: chest.x, z: chest.z });
     } else {
       remaining.push(chest);

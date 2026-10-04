@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import type { BoatState } from '../../shared/protocol';
 
 function woodTexture(deck: boolean): THREE.CanvasTexture {
   const canvas = document.createElement('canvas');
@@ -56,6 +57,67 @@ export function updateWarshipCaptain(group:THREE.Group,name:string):void {
   const sail=group.getObjectByName('warship-canvas') as THREE.Mesh<THREE.BufferGeometry,THREE.MeshStandardMaterial>;
   sail.material.map?.dispose();sail.material.map=sailTexture(name);
   group.userData.captainName=name;
+}
+
+// A single shared uniform per ship changes all sails without regenerating textures.
+export function updateWarshipDamage(group: THREE.Group, hp: number, maxHp: number, hits: BoatState['hullHits'] = []): number {
+  const damage = THREE.MathUtils.clamp(1 - hp / Math.max(1, maxHp), 0, 1);
+  group.userData.damage.value = damage;
+  const points = group.userData.hullHits.value as THREE.Vector4[];
+  points.forEach((point, index) => {
+    const hit = hits[index];
+    if (hit) point.set(hit.side * sideWidth(hit.z, 2), 2, hit.z, (.45 + hit.damage / 100) * Math.sqrt(damage));
+    else point.set(0, 0, 0, 0);
+  });
+  return damage;
+}
+
+function applyDamageMaterial(material: THREE.MeshStandardMaterial, damage: { value: number }, sail: boolean, hits?: { value: THREE.Vector4[] }) {
+  const original = material.onBeforeCompile;
+  material.onBeforeCompile = (shader, renderer) => {
+    original.call(material, shader, renderer);
+    shader.uniforms.uShipDamage = damage;
+    shader.fragmentShader = 'uniform float uShipDamage;\n' + shader.fragmentShader;
+    if (hits) {
+      shader.uniforms.uHullHits = hits;
+      shader.vertexShader = 'varying vec3 vHullPosition;\n' + shader.vertexShader;
+      shader.vertexShader = shader.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\n vHullPosition = position;');
+      shader.fragmentShader = 'uniform vec4 uHullHits[8];\nvarying vec3 vHullPosition;\n' + shader.fragmentShader;
+    }
+    shader.fragmentShader = shader.fragmentShader.replace('#include <color_fragment>', `
+      #include <color_fragment>
+      // Reproducible ragged tears grow continuously with lost health.
+      vec2 damageUv = ${material.map ? 'vMapUv' : 'vHullPosition.xz * .03'};
+      float edgeNoise = sin(damageUv.x * 117.) * sin(damageUv.y * 93.) * .011;
+      float scar = 1.;
+      for (int i = 0; i < 7; i++) {
+        float n = float(i);
+        vec2 center = vec2(.16 + mod(n * .271, .68), .18 + mod(n * .193, .64));
+        float radius = uShipDamage * (.10 + mod(n * .031, .06));
+        float cut = length((damageUv - center) * vec2(1., 1.3)) + edgeNoise - radius;
+        scar = min(scar, cut);
+      }
+      ${sail ? 'if (uShipDamage > .001 && scar < 0.) discard;' : ''}
+      float scorch = uShipDamage * (1. - smoothstep(0., .07, scar));
+      diffuseColor.rgb = mix(diffuseColor.rgb, vec3(.055, .035, .021), scorch * .9);
+      diffuseColor.rgb *= 1. - uShipDamage * ${sail ? '.18' : '.55'};
+      ${hits ? `
+        for (int i = 0; i < 8; i++) {
+          vec4 hit = uHullHits[i];
+          if (hit.w <= .001) continue;
+          vec3 offset = vHullPosition - hit.xyz;
+          float splinter = sin(offset.y * 28.) * sin(offset.z * 23.) * .065;
+          float wound = length(offset * vec3(.7, 1., .8)) + splinter - hit.w;
+          if (wound < 0.) discard;
+          float rim = 1. - smoothstep(.01, .14, wound);
+          diffuseColor.rgb = mix(diffuseColor.rgb, vec3(.62, .33, .1), rim);
+          float burnt = (1. - smoothstep(.14, .4, wound)) * (1. - rim);
+          diffuseColor.rgb = mix(diffuseColor.rgb, vec3(.04, .025, .015), burnt * .85);
+        }
+      ` : ''}
+    `);
+  };
+  material.customProgramCacheKey = () => sail ? 'damaged-sail-v2' : hits ? `battle-hull-v4-${!!material.map}` : 'damaged-deck-v2';
 }
 
 function beam(z: number): number {
@@ -135,6 +197,17 @@ export function createWarship(accent: string, captainName: string): THREE.Group 
   materials.canvas.customProgramCacheKey=()=> 'captain-sail-v1';
   materials.jib.onBeforeCompile=materials.canvas.onBeforeCompile;
   materials.jib.customProgramCacheKey=materials.canvas.customProgramCacheKey;
+  const damage = { value: 0 };
+  const hits = { value: Array.from({ length: 8 }, () => new THREE.Vector4()) };
+  group.userData.damage = damage;
+  group.userData.hullHits = hits;
+  applyDamageMaterial(materials.canvas, damage, true);
+  applyDamageMaterial(materials.jib, damage, true);
+  applyDamageMaterial(materials.hull, damage, false, hits);
+  for (const material of [materials.timber, materials.gold, materials.metal, materials.port, materials.glass]) {
+    applyDamageMaterial(material, damage, false, hits);
+  }
+  applyDamageMaterial(materials.deck, damage, false);
   type MaterialName=keyof typeof materials;
   const batches=new Map<MaterialName,THREE.BufferGeometry[]>();
   const ropes:number[]=[];

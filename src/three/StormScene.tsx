@@ -1,22 +1,23 @@
 import { useEffect, useRef } from 'react';
 import * as THREE from 'three';
 import type { BoatState, GameEvent, GameState, Quality, Vec2 } from '../../shared/protocol';
-import { createWarship, updateWarshipCaptain } from './warship';
+import { createWarship, updateWarshipCaptain, updateWarshipDamage } from './warship';
 import { createHorizon, createOcean, createRockIsland } from './ocean';
-import { SUPPLY_BOX_LIFETIME } from '../../shared/simulation';
+import { RESPAWN_SECONDS, SUPPLY_BOX_LIFETIME } from '../../shared/simulation';
 
 interface Props {
   state: GameState | null;
   boatId: string;
   quality: Quality;
   dragTarget?: Vec2 | null;
-  onWorldPointer?: (event: { type: 'start' | 'move' | 'end'; pointerId: number; world?: Vec2; clientX: number; clientY: number }) => void;
+  onWorldPointer?: (event: { type: 'start' | 'move' | 'end'; pointerId: number; world?: Vec2; clientX: number; clientY: number; cancelled?: boolean }) => void;
 }
 
 interface BoatRender {
   group: THREE.Group;
   hp: THREE.Mesh;
   wake: THREE.Mesh[];
+  lastFoam: number;
 }
 
 interface Particle {
@@ -26,6 +27,7 @@ interface Particle {
   vx: number;
   vz: number;
   vy: number;
+  grow?: boolean;
 }
 
 interface SceneRuntime {
@@ -143,7 +145,7 @@ export default function StormScene({ state, boatId, quality, dragTarget, onWorld
     };
     const pointerEnd = (event: PointerEvent) => {
       event.preventDefault();
-      pointerHandlerRef.current?.({ type: 'end', pointerId: event.pointerId, world: toWorld(event), clientX: event.clientX, clientY: event.clientY });
+      pointerHandlerRef.current?.({ type: 'end', pointerId: event.pointerId, world: toWorld(event), clientX: event.clientX, clientY: event.clientY, cancelled: event.type === 'pointercancel' });
     };
     renderer.domElement.addEventListener('pointerdown', pointerStart, { passive: false });
     renderer.domElement.addEventListener('pointermove', pointerMove, { passive: false });
@@ -165,7 +167,9 @@ export default function StormScene({ state, boatId, quality, dragTarget, onWorld
         particle.mesh.position.x += particle.vx * dt;
         particle.mesh.position.z += particle.vz * dt;
         particle.mesh.position.y += particle.vy * dt;
-        particle.mesh.scale.multiplyScalar(Math.pow(1.012,dt*60));
+        if (particle.mesh.userData.waveRing) particle.mesh.scale.setScalar(1 + (1 - particle.life / particle.max) * 3);
+        else if (particle.grow !== false) particle.mesh.scale.multiplyScalar(Math.pow(1.012,dt*60));
+        if (particle.mesh.userData.debris) particle.mesh.position.y = .3 + Math.sin(simulationTime * 2 + particle.mesh.id) * .12;
         const mat = getMaterial(particle.mesh);
         if (mat) mat.opacity = Math.max(0, particle.life / particle.max);
       }
@@ -264,7 +268,7 @@ function makeBoat(boat: BoatState): BoatRender {
     mesh.userData.skipReflection=true;
     mesh.position.set(0, .35, -12.5);group.add(mesh);return mesh;
   });
-  return { group, hp, wake };
+  return { group, hp, wake, lastFoam: -Infinity };
 }
 
 
@@ -285,19 +289,32 @@ function syncBoats(runtime: SceneRuntime, state: GameState, playerBoatId: string
       runtime.scene.add(render.group);
     }
     updateWarshipCaptain(render.group,boat.name);
-    render.group.position.set(boat.x, bob(state.now + boat.x), boat.z);
+    const damage = updateWarshipDamage(render.group, boat.hp, boat.maxHp, boat.hullHits);
+    const sinking = boat.hp <= 0 && boat.sunkUntil > state.now;
+    const sinkProgress = sinking ? THREE.MathUtils.clamp(1 - (boat.sunkUntil - state.now) / RESPAWN_SECONDS, 0, 1) : 0;
+    const sinkDepth = sinkProgress * sinkProgress * (3 - 2 * sinkProgress) * 25;
+    const leanSide = -(boat.hullHits?.at(-1)?.side ?? 1);
+    render.group.userData.sinkProgress = sinkProgress;
+    render.group.position.set(boat.x, bob(state.now + boat.x) - damage * .65 - sinkDepth, boat.z);
     render.group.rotation.y = boat.angle;
-    render.group.rotation.x = Math.sin(state.now * 1.4 + boat.x) * .012;
-    render.group.rotation.z = Math.cos(state.now * 1.1 + boat.z) * .009;
-    render.group.visible = boat.hp > 0;
+    render.group.rotation.x = Math.sin(state.now * 1.4 + boat.x) * .012 + damage * .045 + sinkProgress * .25;
+    render.group.rotation.z = Math.cos(state.now * 1.1 + boat.z) * .009 + damage * .17 + leanSide * sinkProgress * .85;
+    render.group.visible = boat.hp > 0 || sinking && sinkProgress < .94;
+    render.hp.visible = boat.hp > 0;
+    if (sinking && sinkProgress < .65 && state.now - render.lastFoam > .35) {
+      burst(runtime, boat.x, .4, boat.z, '#e7f9f4', 6, .55);
+      render.lastFoam = state.now;
+    }
+    if (!sinking) render.lastFoam = -Infinity;
     render.group.scale.setScalar(boat.id === playerBoatId ? 1.08 : 1);
     render.hp.scale.x = Math.max(0.02, boat.hp / boat.maxHp);
     render.hp.position.x = -(1 - render.hp.scale.x) * 2.1;
     for (const [index, wake] of render.wake.entries()) {
       wake.visible = Math.hypot(boat.vx, boat.vz) > 0.9 && boat.hp > 0;
-      wake.scale.setScalar(1 + Math.sin(state.now * 4 + index) * .02);
+      const pulse = 1 + Math.sin(state.now * 4 + index) * .02;
+      wake.scale.set(pulse * (boat.boostTime > 0 ? 1.7 : 1), pulse, pulse * (boat.boostTime > 0 ? 1.6 : 1));
       const mat = wake.material as THREE.MeshBasicMaterial;
-      mat.opacity = .44 * Math.min(1,Math.hypot(boat.vx,boat.vz)/12);
+      mat.opacity = (boat.boostTime > 0 ? .75 : .44) * Math.min(1,Math.hypot(boat.vx,boat.vz)/12);
     }
   }
 }
@@ -314,7 +331,7 @@ function syncBalls(runtime: SceneRuntime, state: GameState) {
   for (const ball of state.cannonballs) {
     let mesh = runtime.balls.get(ball.id);
     if (!mesh) {
-      mesh = new THREE.Mesh(new THREE.SphereGeometry(0.34, 12, 8), new THREE.MeshBasicMaterial({ color: '#1d1510' }));
+      mesh = new THREE.Mesh(new THREE.SphereGeometry(ball.explosive ? .55 : .34, 12, 8), new THREE.MeshBasicMaterial({ color: ball.explosive ? '#ff7b22' : '#1d1510' }));
       runtime.balls.set(ball.id, mesh);
       runtime.scene.add(mesh);
     }
@@ -339,17 +356,24 @@ function syncChests(runtime: SceneRuntime, state: GameState) {
       const lid = new THREE.Mesh(new THREE.BoxGeometry(2.05, 0.22, 1.5), new THREE.MeshStandardMaterial({ color: '#f0b84b', metalness: 0.35 }));
       lid.position.y = 0.68;
       mesh.add(box, lid);
+      if (chest.kind === 'large') {
+        mesh.scale.setScalar(1.6);
+        (lid.material as THREE.MeshStandardMaterial).color.set('#ef8141');
+        const band = new THREE.Mesh(new THREE.BoxGeometry(.25, 1.5, 1.55), new THREE.MeshStandardMaterial({ color: '#ffe095', metalness: .5 }));
+        band.position.y = .15;
+        mesh.add(band);
+      }
       const ring=new THREE.Mesh(new THREE.RingGeometry(1.5,1.7,40),new THREE.MeshBasicMaterial({color:'#f0b84b',transparent:true,opacity:.8,side:THREE.DoubleSide,depthWrite:false}));
       ring.rotation.x=-Math.PI/2;ring.position.y=-.65;ring.name='supply-expiry';ring.userData.skipReflection=true;mesh.add(ring);
       runtime.chests.set(chest.id, mesh);
       runtime.scene.add(mesh);
     }
     mesh.position.set(chest.x, 1.2 + Math.sin(state.now * 2 + chest.x) * 0.2, chest.z);
-    mesh.rotation.y += 0.012;
+    mesh.rotation.y = state.now * .25;
     const remaining=Math.max(0,chest.expiresAt-state.now);
     const ring=mesh.getObjectByName('supply-expiry') as THREE.Mesh<THREE.RingGeometry,THREE.MeshBasicMaterial>;
     ring.geometry.setDrawRange(0,Math.ceil(remaining/SUPPLY_BOX_LIFETIME*40)*6);
-    ring.material.color.set(remaining<6?'#ff8a59':'#f0b84b');
+    ring.material.color.set(remaining<6?'#ff8a59':chest.kind==='large'?'#ef8141':'#f0b84b');
     ring.material.opacity=remaining<6?.4+.4*Math.abs(Math.sin(state.now*5)):.8;
   }
 }
@@ -393,10 +417,42 @@ function syncIslands(runtime: SceneRuntime, state: GameState) {
 function spawnEventParticles(runtime: SceneRuntime, events: GameEvent[]) {
   for (const event of events) {
     if (event.type === 'fire') burst(runtime, event.x, 2.7, event.z, '#f0b84b', 8, 0.34);
-    if (event.type === 'hit') burst(runtime, event.x, 2.2, event.z, '#d8f5ff', 16, 0.42);
-    if (event.type === 'sink') burst(runtime, event.x, 2.2, event.z, '#e85d4f', 28, 0.9);
+    if (event.type === 'hit') {
+      burst(runtime, event.x, 2.2, event.z, '#d8f5ff', 10, .42);
+      burst(runtime, event.x, 2.4, event.z, '#b77f43', 8, .65);
+    }
+    if (event.type === 'sink') sinkEffects(runtime, event.x, event.z);
+    if (event.type === 'explosion') burst(runtime, event.x, 2.6, event.z, '#ff852c', 24, .7);
     if (event.type === 'chest') burst(runtime, event.x, 2.1, event.z, '#f0b84b', 14, 0.55);
     if (event.type === 'respawn') burst(runtime, event.x, 2.1, event.z, '#7df2b7', 18, 0.6);
+    if (event.type === 'repair') burst(runtime, event.x, 4, event.z, '#7df2b7', 16, .7);
+    if (event.type === 'reload') burst(runtime, event.x, 3.2, event.z, '#f7ca67', 10, .45);
+  }
+}
+
+function sinkEffects(runtime: SceneRuntime, x: number, z: number) {
+  burst(runtime, x, .6, z, '#e7f9f4', 24, 1.2);
+  const ring = new THREE.Mesh(
+    new THREE.RingGeometry(3, 3.5, 48),
+    new THREE.MeshBasicMaterial({ color: '#e7f9f4', transparent: true, opacity: .8, side: THREE.DoubleSide, depthWrite: false }),
+  );
+  ring.rotation.x = -Math.PI / 2;
+  ring.position.set(x, .3, z);
+  ring.userData.skipReflection = true;
+  ring.userData.waveRing = true;
+  runtime.scene.add(ring);
+  runtime.particles.push({ mesh: ring, life: 2.8, max: 2.8, vx: 0, vz: 0, vy: 0 });
+  for (let i = 0; i < 8; i++) {
+    const plank = new THREE.Mesh(
+      new THREE.BoxGeometry(.5 + Math.random() * .45, .15, 1 + Math.random()),
+      new THREE.MeshStandardMaterial({ color: '#89613b', roughness: .85, transparent: true }),
+    );
+    plank.position.set(x + (Math.random() - .5) * 4, .35, z + (Math.random() - .5) * 6);
+    plank.rotation.y = Math.random() * Math.PI;
+    plank.userData.skipReflection = true;
+    plank.userData.debris = true;
+    runtime.scene.add(plank);
+    runtime.particles.push({ mesh: plank, life: 4.5, max: 4.5, vx: (Math.random() - .5) * 2, vz: (Math.random() - .5) * 2, vy: 0, grow: false });
   }
 }
 

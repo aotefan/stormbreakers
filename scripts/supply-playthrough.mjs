@@ -22,7 +22,7 @@ try {
  const own=()=>pa.evaluate(()=>{const g=readGame();return g.s.boats.find(b=>b.id===g.id);});
  async function sail(target,done){let boat=await own(),p=await pa.evaluate(({x,z})=>worldPoint(x,z),boat);await pa.mouse.move(p.x,p.y);await pa.mouse.down();const end=Date.now()+16000;
   try{while(Date.now()<end){if(await done())return;const p=await pa.evaluate(t=>worldPoint(t.x,t.z),target);await pa.mouse.move(p.x,p.y);await pa.waitForTimeout(75);}throw Error('drag did not reach target');}finally{await pa.mouse.up();}}
- const chest=await pa.evaluate(()=>{const g=readGame(),b=g.s.boats.find(b=>b.id===g.id);return [...g.s.chests].filter(c=>g.s.islands.every(i=>{const dx=c.x-b.x,dz=c.z-b.z,length=Math.hypot(dx,dz),along=((i.x-b.x)*dx+(i.z-b.z)*dz)/length;return along<0||along>length||Math.abs((i.x-b.x)*dz-(i.z-b.z)*dx)/length>i.radius+5;})).sort((a,c)=>Math.hypot(a.x-b.x,a.z-b.z)-Math.hypot(c.x-b.x,c.z-b.z))[0];});
+ const chest=await pa.evaluate(()=>{const g=readGame(),b=g.s.boats.find(b=>b.id===g.id);return [...g.s.chests].filter(c=>c.kind==='normal').filter(c=>g.s.islands.every(i=>{const dx=c.x-b.x,dz=c.z-b.z,length=Math.hypot(dx,dz),along=((i.x-b.x)*dx+(i.z-b.z)*dz)/length;return along<0||along>length||Math.abs((i.x-b.x)*dz-(i.z-b.z)*dx)/length>i.radius+5;})).sort((a,c)=>Math.hypot(a.x-b.x,a.z-b.z)-Math.hypot(c.x-b.x,c.z-b.z))[0];});
  assert(chest,'reachable supply crate');report.default=await own();assert.equal(report.default.salvoCount,1);
  await sail(chest,async()=>(await own()).salvoCount>1);await wait(()=>pa.getByTestId('weapon-status').textContent().then(t=>t.includes('+20%')),'powered HUD');report.pickup=await own();
  await pa.keyboard.press('q');await pa.keyboard.press('e');await pa.waitForTimeout(100);
