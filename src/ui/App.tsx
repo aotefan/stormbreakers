@@ -41,6 +41,7 @@ const text = {
     time: '倒计时',
     cooldown: '冷却',
     winner: '胜者',
+    rematch: '再来一局',
     connecting: '连接中',
     authoritative: '服务器权威同步',
     soloFrozen: '单机已冻结',
@@ -98,6 +99,7 @@ const text = {
     time: 'Timer',
     cooldown: 'Cooldown',
     winner: 'Winner',
+    rematch: 'Play again',
     connecting: 'Connecting',
     authoritative: 'Server authoritative',
     soloFrozen: 'Solo frozen',
@@ -537,7 +539,10 @@ function BattleScreen({ session, onExit, labels, quality, volume, muted }: Battl
       {battle.state?.ended ? (
         <section className="end-modal">
           <h2>{labels.winner}: {battle.state.winnerName}</h2>
-          <button onClick={onExit}>{labels.quit}</button>
+          <div className="end-actions">
+            {session.kind === 'online' ? <button data-testid="rematch" disabled={!battle.connected} onClick={battle.restart}>{labels.rematch}</button> : null}
+            <button onClick={onExit}>{labels.quit}</button>
+          </div>
         </section>
       ) : null}
     </main>

@@ -23,6 +23,7 @@ export interface BattleSession {
   paused: boolean;
   setPaused: (paused: boolean) => void;
   updateInput: (patch: Partial<PlayerInput>) => void;
+  restart: () => void;
   latestInput: PlayerInput;
   error?: string;
 }
@@ -95,6 +96,12 @@ export function useBattle(options: SessionOptions | null): BattleSession {
     }
   }, []);
 
+  const restart = useCallback(() => {
+    if (stateRef.current?.ended && wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ type: 'restart' } satisfies ClientMessage));
+    }
+  }, []);
+
   useEffect(() => {
     if (!options) return;
     setError(undefined);
@@ -150,6 +157,11 @@ export function useBattle(options: SessionOptions | null): BattleSession {
       ws.onmessage = (event) => {
         const message = JSON.parse(event.data) as ServerMessage;
         if (message.type === 'joined') {
+          inputRef.current = { seq: 0, throttle: 0, turn: 0 };
+          predictionRef.current = null;
+          pendingStopRef.current = null;
+          pausedRef.current = false;
+          setPausedState(false);
           roomCodeRef.current = message.roomCode;
           localIdsRef.current = { playerId: message.playerId, boatId: message.boatId, roomCode: message.roomCode };
           setIds(localIdsRef.current);
@@ -219,9 +231,10 @@ export function useBattle(options: SessionOptions | null): BattleSession {
       paused,
       setPaused,
       updateInput,
+      restart,
       latestInput: inputRef.current,
       error,
     }),
-    [connected, error, ids, options?.kind, paused, setPaused, state, updateInput],
+    [connected, error, ids, options?.kind, paused, setPaused, state, updateInput, restart],
   );
 }

@@ -118,6 +118,7 @@ export type ClientMessage =
   | { type: 'practice'; nickname: string; mode: Mode; difficulty: Difficulty; testDuration?: number }
   | { type: 'input'; input: PlayerInput }
   | { type: 'pause'; paused: boolean }
+  | { type: 'restart' }
   | { type: 'debug'; command: 'placeDuel' | 'fastEnd' };
 
 export type ServerMessage =

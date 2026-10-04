@@ -14,6 +14,7 @@ const ROOM_LIMIT = 6;
 
 interface Client {
   id: string;
+  nickname: string;
   ws: WebSocket;
   roomCode: string;
   boatId: string;
@@ -22,6 +23,7 @@ interface Client {
 
 interface Room {
   code: string;
+  aiCount: number;
   difficulty: Difficulty;
   state: ReturnType<typeof createGameState>;
   inputs: Map<string, PlayerInput>;
@@ -99,6 +101,11 @@ function handleMessage(ws: WebSocket, message: ClientMessage): void {
   if (message.type === 'pause') {
     return;
   }
+  if (message.type === 'restart') {
+    const room = existing && rooms.get(existing.roomCode);
+    if (room?.state.ended) restartRoom(room);
+    return;
+  }
   if (message.type === 'debug') {
     if (process.env.NODE_ENV !== 'test' || !existing) return;
     const room = rooms.get(existing.roomCode);
@@ -115,6 +122,7 @@ function handleMessage(ws: WebSocket, message: ClientMessage): void {
   if (!room) {
     room = {
       code: roomCode,
+      aiCount: message.type === 'practice' ? 5 : 4,
       difficulty: message.difficulty,
       state: createGameState({
         roomCode,
@@ -128,21 +136,50 @@ function handleMessage(ws: WebSocket, message: ClientMessage): void {
     };
     rooms.set(roomCode, room);
   }
-  if (room.clients.size >= ROOM_LIMIT) {
+  if (room.clients.size - (existing?.roomCode === roomCode ? 1 : 0) >= ROOM_LIMIT) {
     sendWs(ws, { type: 'error', message: 'Room is full' });
     return;
   }
+  // Repeated joins on one socket replace its seat instead of leaving a ghost player.
+  if (existing) {
+    const previous = rooms.get(existing.roomCode);
+    previous?.clients.delete(existing.id);
+    previous?.inputs.delete(existing.id);
+    if (previous) removeHumanToAi(previous.state, existing.id);
+    clients.delete(ws);
+  }
+  if (room.state.ended) restartRoom(room);
+  const nickname = message.nickname?.trim() || 'Captain';
   const boat = addBoat(room.state, {
     playerId,
-    name: message.nickname?.trim() || 'Captain',
+    name: nickname,
     ai: false,
     replaceAi: true,
   });
-  const client: Client = { id: playerId, ws, roomCode: room.code, boatId: boat.id, input };
+  const client: Client = { id: playerId, nickname, ws, roomCode: room.code, boatId: boat.id, input };
   clients.set(ws, client);
   room.clients.set(playerId, client);
   room.inputs.set(playerId, input);
   sendWs(ws, { type: 'joined', playerId, boatId: boat.id, roomCode: room.code, authoritative: true });
+}
+
+function restartRoom(room: Room): void {
+  room.state = createGameState({
+    roomCode: room.code,
+    mode: room.state.mode,
+    duration: room.state.duration,
+    aiCount: room.aiCount,
+  });
+  room.inputs.clear();
+  for (const client of room.clients.values()) {
+    const boat = addBoat(room.state, { playerId: client.id, name: client.nickname, ai: false, replaceAi: true });
+    client.boatId = boat.id;
+    client.input = { seq: 0, throttle: 0, turn: 0 };
+    room.inputs.set(client.id, client.input);
+    sendWs(client.ws, { type: 'joined', playerId: client.id, boatId: boat.id, roomCode: room.code, authoritative: true });
+  }
+  const state = cloneStateForClient(room.state);
+  for (const client of room.clients.values()) sendWs(client.ws, { type: 'state', playerId: client.id, state });
 }
 
 function placeDuel(room: Room): void {

@@ -214,6 +214,13 @@ export default function StormScene({ state, boatId, quality, dragTarget, onWorld
   useEffect(() => {
     const runtime = runtimeRef.current;
     if (!runtime || !state) return;
+    if (state.tick < runtime.lastTick) {
+      for (const particle of runtime.particles) {
+        runtime.scene.remove(particle.mesh);
+        disposeObject(particle.mesh);
+      }
+      runtime.particles = [];
+    }
     runtime.water.userData.simulationTime=state.now;
     syncIslands(runtime, state);
     syncChests(runtime, state);

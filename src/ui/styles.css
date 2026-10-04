@@ -372,6 +372,13 @@ label {
   background: rgba(99, 163, 92, 0.75);
 }
 
+.end-actions {
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
 .end-modal {
   position: absolute;
   z-index: 8;

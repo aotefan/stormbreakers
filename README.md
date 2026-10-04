@@ -11,6 +11,7 @@ React + TypeScript + Three.js naval battle game with a Node.js authoritative Web
 - Cannon hits leave localized ragged hull breaches and burnt edges. Sunk ships list and descend over 5 seconds with foam, an expanding wake and floating planks; pause freezes the effect and respawn clears damage.
 - Space boosts while sailing (+50% maximum speed for 1.4s, 9s cooldown). F immediately readies both cannons (18s cooldown); R repairs with a 14s cooldown. Buttons show effects, remaining cooldown and unavailable reasons; idle boost, full-health repair and unnecessary reload do not consume cooldowns.
 - Solo pause freezes the simulation. Pause, window blur and touch cancellation clear held controls.
+- After an online round ends, Play again restarts everyone in the same room with fresh ships, scores and timers. Joining a finished room also starts a new round; joining an active room keeps its current progress.
 
 ## Local
 
