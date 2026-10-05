@@ -88,7 +88,7 @@ export function createTornado(quality: Quality, seed: number): THREE.Group {
         float light = .22 + .20*cos(theta+1.2) + .42*n + .08*curl;
         vec3 shade = mix(vec3(.018,.027,.039), vec3(.30,.36,.39), clamp(light,0.0,1.0));
         shade *= .64 + .48*detail;
-        float alpha = (.64 + n*.30) * smoothstep(0.0,.055,vUv.y) * (1.0-smoothstep(.90,1.0,vUv.y));
+        float alpha = (.18 + n*.10) * smoothstep(0.0,.055,vUv.y) * (1.0-smoothstep(.90,1.0,vUv.y));
         gl_FragColor = vec4(shade,alpha);
         ${colorOutput}
       }
@@ -126,7 +126,9 @@ export function createTornado(quality: Quality, seed: number): THREE.Group {
   clouds.setAttribute('aSize', new THREE.InstancedBufferAttribute(new Float32Array(sizes), 3));
   clouds.instanceCount = count;
   const cloudMaterial = new THREE.ShaderMaterial({
-    uniforms: { uTime: time }, transparent: true, depthWrite: false,
+    // Alpha accumulates across overlapping puffs. Keep overall visibility comparable
+    // across quality levels so adding cloud detail does not hide ships.
+    uniforms: { uTime: time, uDensityScale: { value: 300 / count } }, transparent: true, depthWrite: false,
     vertexShader: `
       attribute vec4 aOrbit;
       attribute vec3 aSize;
@@ -145,7 +147,7 @@ export function createTornado(quality: Quality, seed: number): THREE.Group {
       }
     `,
     fragmentShader: `
-      uniform float uTime;
+      uniform float uTime, uDensityScale;
       varying vec2 vUv;
       varying vec3 vCloud;
       ${noise}
@@ -156,8 +158,8 @@ export function createTornado(quality: Quality, seed: number): THREE.Group {
         float alpha = (1.0-smoothstep(.45,.98,rim)) * (.45+.45*n);
         float mist=step(.5,vCloud.z)*(1.0-step(1.5,vCloud.z));
         float cap=step(1.5,vCloud.z);
-        alpha *= mix(.52,1.0,cap);
-        if (alpha < .012) discard;
+        alpha *= mix(.16,.25,cap) * uDensityScale;
+        if (alpha < .002) discard;
         float detail = cloud(vec3(p*5.0+vCloud.x,uTime*.3));
         float dome=sqrt(max(0.0,1.0-dot(p,p)));
         float light=vCloud.y*.65 + dome*.23 + (p.y-p.x)*.12 + (n-.5)*.65 + detail*.12;
