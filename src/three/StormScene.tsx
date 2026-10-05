@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import type { BoatState, GameEvent, GameState, Quality, Vec2 } from '../../shared/protocol';
 import { createWarship, updateWarshipCaptain, updateWarshipDamage } from './warship';
 import { createHorizon, createOcean, createRockIsland } from './ocean';
+import { createTornado, updateTornado } from './tornado';
 import { RESPAWN_SECONDS, SUPPLY_BOX_LIFETIME } from '../../shared/simulation';
 
 interface Props {
@@ -31,6 +32,7 @@ interface Particle {
 }
 
 interface SceneRuntime {
+  quality: Quality;
   renderer: THREE.WebGLRenderer;
   scene: THREE.Scene;
   camera: THREE.PerspectiveCamera;
@@ -38,7 +40,7 @@ interface SceneRuntime {
   boats: Map<string, BoatRender>;
   balls: Map<string, THREE.Mesh>;
   chests: Map<string, THREE.Object3D>;
-  storms: Map<string, THREE.Mesh>;
+  storms: Map<string, THREE.Group>;
   islands: Map<string, THREE.Object3D>;
   particles: Particle[];
   raycaster: THREE.Raycaster;
@@ -90,6 +92,7 @@ export default function StormScene({ state, boatId, quality, dragTarget, onWorld
     scene.add(targetMarker);
 
     const runtime = {
+      quality,
       renderer,
       scene,
       camera,
@@ -97,7 +100,7 @@ export default function StormScene({ state, boatId, quality, dragTarget, onWorld
       boats: new Map<string, BoatRender>(),
       balls: new Map<string, THREE.Mesh>(),
       chests: new Map<string, THREE.Object3D>(),
-      storms: new Map<string, THREE.Mesh>(),
+      storms: new Map<string, THREE.Group>(),
       islands: new Map<string, THREE.Object3D>(),
       particles: [] as Particle[],
       raycaster: new THREE.Raycaster(),
@@ -194,7 +197,7 @@ export default function StormScene({ state, boatId, quality, dragTarget, onWorld
       const materials = new Set<THREE.Material>();
       const textures = new Set<THREE.Texture>();
       scene.traverse((object) => {
-        if (!(object instanceof THREE.Mesh || object instanceof THREE.Line)) return;
+        if (!(object instanceof THREE.Mesh || object instanceof THREE.Line || object instanceof THREE.Points)) return;
         geometries.add(object.geometry);
         for (const material of Array.isArray(object.material) ? object.material : [object.material]) {
           materials.add(material);
@@ -205,6 +208,7 @@ export default function StormScene({ state, boatId, quality, dragTarget, onWorld
       textures.forEach((texture) => texture.dispose());
       materials.forEach((material) => material.dispose());
       geometries.forEach((geometry) => geometry.dispose());
+      sun.shadow.dispose();
       mount.removeChild(renderer.domElement);
       water.getRenderTarget().dispose();
       renderer.dispose();
@@ -233,8 +237,9 @@ export default function StormScene({ state, boatId, quality, dragTarget, onWorld
     }
     const player = state.boats.find((boat) => boat.id === boatId);
     if (player) {
-      runtime.camera.position.lerp(new THREE.Vector3(player.x, 55, player.z + 60), 0.045);
-      runtime.camera.lookAt(player.x, 0, player.z);
+      const stormView = state.mode === 'storm';
+      runtime.camera.position.lerp(new THREE.Vector3(player.x, stormView ? 70 : 55, player.z + (stormView ? 76 : 60)), 0.045);
+      runtime.camera.lookAt(player.x, stormView ? 3 : 0, player.z);
     }
   }, [boatId, quality, state]);
 
@@ -397,16 +402,12 @@ function syncStorms(runtime: SceneRuntime, state: GameState) {
   for (const storm of state.storms) {
     let mesh = runtime.storms.get(storm.id);
     if (!mesh) {
-      mesh = new THREE.Mesh(
-        new THREE.CylinderGeometry(1, 1, 12, 48, 1, true),
-        new THREE.MeshBasicMaterial({ color: '#d8f5ff', transparent: true, opacity: 0.14, side: THREE.DoubleSide }),
-      );
+      mesh = createTornado(runtime.quality,
+        [...storm.id].reduce((seed, char) => seed + char.charCodeAt(0), 0));
       runtime.storms.set(storm.id, mesh);
       runtime.scene.add(mesh);
     }
-    mesh.position.set(storm.x, 5, storm.z);
-    mesh.scale.set(storm.radius, 1, storm.radius);
-    mesh.rotation.y += 0.018;
+    updateTornado(mesh, storm, state.now);
   }
 }
 
@@ -487,7 +488,7 @@ function getMaterial(object: THREE.Object3D): THREE.Material | undefined {
 function disposeObject(object:THREE.Object3D):void {
   const materials=new Set<THREE.Material>(),textures=new Set<THREE.Texture>();
   object.traverse(child=>{
-    if(!(child instanceof THREE.Mesh||child instanceof THREE.Line))return;
+    if(!(child instanceof THREE.Mesh||child instanceof THREE.Line||child instanceof THREE.Points))return;
     child.geometry.dispose();
     for(const material of Array.isArray(child.material)?child.material:[child.material])materials.add(material);
   });
