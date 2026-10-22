@@ -35,7 +35,7 @@ try {
   }
   assert(totals.hard>totals.normal&&totals.normal>totals.easy,'higher difficulty must increase attack cadence');
   for(const difficulty of ['easy','normal','hard'] as Difficulty[]) {
-    const s=createGameState({roomCode:'FLEET',mode:'battle',aiCount:5});
+    const s=createGameState({roomCode:'FLEET',mode:'battle',aiCount:6});
     const human=addBoat(s,{name:'Captain',playerId:'human',ai:false,replaceAi:true});human.hp=human.maxHp=100000;
     const stats=new Map(s.boats.filter(b=>b.ai).map(b=>[b.id,{name:b.name,shots:0,travel:0,idle:0,maxIdle:0,contact:0,maxContact:0}]));
     for(let frame=0;frame<80*60;frame++) {

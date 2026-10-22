@@ -2,12 +2,15 @@ import { spawn } from 'node:child_process';
 import { chromium, devices } from 'playwright';
 import { mkdir, writeFile } from 'node:fs/promises';
 import assert from 'node:assert/strict';
+import WebSocket from 'ws';
+import { once } from 'node:events';
 
 const publicUrl = process.env.TEST_URL;
 const baseUrl = publicUrl ?? 'http://127.0.0.1:8795';
 const output = process.env.TEST_OUTPUT ?? 'test-output/touch-stop';
 const checks = [];
 let child, browser;
+const idleSockets = [];
 function check(ok, label, evidence) {
   checks.push({ label, pass: !!ok, evidence });
   console.log(ok ? 'PASS' : 'FAIL', label, JSON.stringify(evidence));
@@ -134,6 +137,16 @@ async function main() {
   const joined=await waitFor(()=>a.evaluate('window.qa.joined'),'A joined');
   await open(b);await b.getByTestId('nickname').fill('StopB');await b.getByTestId('room-code').fill(joined.roomCode);await b.getByTestId('join-room').click();
   await waitFor(()=>b.evaluate('window.qa.joined && window.qa.state'),'B joined');
+  // Real, idle human seats isolate the touch/prediction assertions from AI
+  // combat, which can sink the inspected ship between portrait and landscape.
+  // Combat and AI behavior are covered independently by the rule/visual suites.
+  for (let i=0;i<4;i++) {
+    const ws = new WebSocket(baseUrl.replace(/^http/, 'ws') + '/ws');
+    idleSockets.push(ws);
+    await once(ws, 'open');
+    ws.send(JSON.stringify({type:'join',nickname:`TouchIdle${i}`,roomCode:joined.roomCode,mode:'battle',difficulty:'normal'}));
+  }
+  await waitFor(()=>a.evaluate('window.qa.state.boats.length===6 && window.qa.state.boats.every(b=>!b.ai)'), 'touch room has no AI combat');
   check((await a.evaluate('window.qa.state.duration'))===180,'online production round defaults to 180 seconds');
   await gesture(a,'online-portrait',true);
   await a.setViewportSize({width:844,height:390});await a.waitForTimeout(200);
@@ -146,4 +159,4 @@ async function main() {
   console.log('TOUCH_VISUAL_TEST_PASS',baseUrl);
 }
 try {await main();}catch(error){console.error('TOUCH_VISUAL_TEST_FAIL',error);process.exitCode=1;}
-finally {await writeFile(`${output}/results.json`,JSON.stringify(checks,null,2));await browser?.close();child?.kill();}
+finally {idleSockets.forEach(ws=>ws.terminate());await writeFile(`${output}/results.json`,JSON.stringify(checks,null,2));await browser?.close();child?.kill();}
