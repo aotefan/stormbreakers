@@ -6,6 +6,7 @@ import { type SessionOptions, useBattle } from '../game/useBattle';
 import StormScene from '../three/StormScene';
 import { WEAPONS, weaponLevel } from '../../shared/weapons';
 import { ABILITIES, canBoost } from '../../shared/abilities';
+import { REPOSITORY_URL, SITE_URL, siteText } from '../site';
 
 type Lang = 'zh' | 'en';
 type Labels = Record<keyof (typeof text)['zh'], string>;
@@ -17,7 +18,7 @@ const text = {
     nickname: '船长昵称',
     start: '扬帆出航',
     practice: '人机练习',
-    match: '自动匹配',
+    match: '快速开局',
     create: '创建房间',
     join: '房间码加入',
     room: '房间码',
@@ -75,7 +76,7 @@ const text = {
     nickname: 'Captain name',
     start: 'Set Sail',
     practice: 'AI Practice',
-    match: 'Quick Match',
+    match: 'Quick Play',
     create: 'Create Room',
     join: 'Join Code',
     room: 'Room code',
@@ -129,8 +130,8 @@ const text = {
   },
 } as const;
 
-export default function App() {
-  const [lang, setLang] = useState<Lang>('zh');
+export default function App({ initialLang = 'zh' }: { initialLang?: Lang }) {
+  const [lang] = useState<Lang>(initialLang);
   const [nickname, setNickname] = useState('孙警醒');
   const [mode, setMode] = useState<Mode>('battle');
   const [difficulty, setDifficulty] = useState<Difficulty>('normal');
@@ -140,6 +141,7 @@ export default function App() {
   const [roomCode, setRoomCode] = useState('');
   const [session, setSession] = useState<SessionOptions | null>(null);
   const t = text[lang];
+  const info = siteText[lang];
 
   if (session) {
     return (
@@ -163,10 +165,11 @@ export default function App() {
             <h1>{t.title}</h1>
             <p>{t.subtitle}</p>
           </div>
-          <button className="icon-button" onClick={() => setLang(lang === 'zh' ? 'en' : 'zh')} aria-label="language">
+          <button className="icon-button" onClick={() => window.location.assign(lang === 'zh' ? '/en/' : '/')} aria-label="language">
             {lang === 'zh' ? 'EN' : '中'}
           </button>
         </div>
+        <p className="game-intro">{info.intro}</p>
 
         <div className="menu-grid">
           <label>
@@ -228,6 +231,17 @@ export default function App() {
         <p>{t.stormBody}</p>
         <p>{t.treasureBody}</p>
         <p className="note">{t.onlineNote}</p>
+      </section>
+      <section className="about-panel" aria-labelledby="about-heading">
+        <h2 id="about-heading">{info.faqTitle}</h2>
+        <div className="faq-grid">
+          {info.faq.map(([question, answer]) => <article key={question}><h3>{question}</h3><p>{answer}</p></article>)}
+        </div>
+        <footer className="project-links">
+          <a href={REPOSITORY_URL} target="_blank" rel="noopener noreferrer">{info.source} ↗</a>
+          <a href={`${SITE_URL}${lang === 'en' ? '/en/' : '/'}`}>{info.live}</a>
+          <a href={`${REPOSITORY_URL}/blob/main/LICENSE`} target="_blank" rel="noopener noreferrer">MIT License</a>
+        </footer>
       </section>
     </main>
   );

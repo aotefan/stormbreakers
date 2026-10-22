@@ -8,7 +8,7 @@
     "client": "vite --host 0.0.0.0",
     "server": "tsx server/index.ts",
     "start": "tsx server/index.ts",
-    "build": "tsc && vite build",
+    "build": "tsc && vite build && tsx scripts/prerender.tsx",
     "test:state": "tsx scripts/state-test.ts",
     "test:room-restart": "tsx scripts/room-restart-test.ts",
     "test:ai": "node --import tsx scripts/ai-behavior-test.ts",
@@ -19,25 +19,52 @@
     "test:visual": "tsx scripts/visual-test.ts",
     "test:touch": "tsx scripts/touch-stop-test.ts",
     "test:touch-visual": "node scripts/touch-visual-test.mjs",
-    "test": "npm run build && npm run test:ai && npm run test:firepower && npm run test:rapid-supply && npm run test:abilities && npm run test:damage && npm run test:touch && npm run test:state && npm run test:room-restart && npm run test:visual && npm run test:touch-visual"
+    "test": "npm run build && npm run test:rules && npm run test:visual && npm run test:touch-visual",
+    "test:security": "tsx scripts/security-test.ts",
+    "test:seo": "tsx scripts/seo-test.ts",
+    "test:rules": "npm run test:ai && npm run test:firepower && npm run test:rapid-supply && npm run test:abilities && npm run test:damage && npm run test:touch && npm run test:state && npm run test:room-restart && npm run test:security && npm run test:seo",
+    "prebuild": "node scripts/check-runtime.mjs",
+    "prestart": "node scripts/check-runtime.mjs",
+    "preserver": "node scripts/check-runtime.mjs"
   },
   "dependencies": {
-    "@vitejs/plugin-react": "^5.0.3",
-    "concurrently": "^9.2.1",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
     "three": "^0.180.0",
     "tsx": "^4.20.5",
+    "ws": "^8.18.3"
+  },
+  "devDependencies": {
+    "playwright": "^1.55.1",
+    "@vitejs/plugin-react": "^5.0.3",
+    "concurrently": "^9.2.1",
     "typescript": "^5.9.2",
     "vite": "^7.1.7",
-    "ws": "^8.18.3",
     "@types/node": "^24.5.2",
     "@types/react": "^19.1.13",
     "@types/react-dom": "^19.1.9",
     "@types/three": "^0.186.0",
     "@types/ws": "^8.18.1"
   },
-  "devDependencies": {
-    "playwright": "^1.55.1"
-  }
+  "description": "Open-source 3D naval battle browser game with AI practice and real-time multiplayer.",
+  "license": "MIT",
+  "homepage": "https://stormbreakers.onrender.com/",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/aotefan/stormbreakers.git"
+  },
+  "bugs": {
+    "url": "https://github.com/aotefan/stormbreakers/issues"
+  },
+  "engines": {
+    "node": ">=24.22.1 <25"
+  },
+  "keywords": [
+    "naval-battle",
+    "browser-game",
+    "threejs",
+    "multiplayer",
+    "websocket",
+    "typescript"
+  ]
 }

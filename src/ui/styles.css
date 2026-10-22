@@ -59,6 +59,9 @@ select {
 }
 
 .menu-shell {
+  height: 100%;
+  overflow-y: auto;
+  touch-action: pan-y;
   min-height: 100%;
   display: grid;
   grid-template-columns: minmax(320px, 1fr) minmax(280px, 0.76fr);
@@ -68,6 +71,15 @@ select {
     radial-gradient(circle at 76% 22%, rgba(240, 184, 75, 0.2), transparent 28%),
     linear-gradient(145deg, #062f3c 0%, #0b5563 54%, #072630 100%);
 }
+
+.about-panel { grid-column: 1 / -1; padding: 24px; border-top: 1px solid rgba(243,234,216,.2); }
+.faq-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); gap: 16px 32px; }
+.faq-grid h3 { font-size: 17px; margin-bottom: 8px; }
+.faq-grid p { margin-top: 0; font-size: 14px; }
+.game-intro { max-width: 52ch; }
+.project-links { display: flex; gap: 20px; flex-wrap: wrap; padding-top: 18px; }
+.project-links a { color: #f0b84b; text-underline-offset: 4px; }
+.project-links a:focus-visible { outline: 2px solid #f0b84b; outline-offset: 5px; }
 
 .hero-panel,
 .guide-panel {

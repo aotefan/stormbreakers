@@ -112,7 +112,7 @@ export function useBattle(options: SessionOptions | null): BattleSession {
 
     if (options.kind === 'practice') {
       const playerId = `local-${Date.now()}`;
-      const local = createGameState({ roomCode: 'SOLO', mode: options.mode, aiCount: 5, duration: 180 });
+      const local = createGameState({ roomCode: 'SOLO', mode: options.mode, aiCount: 6, duration: 180 });
       const boat = addBoat(local, { playerId, name: options.nickname, ai: false, replaceAi: true });
       stateRef.current = local;
       localIdsRef.current = { playerId, boatId: boat.id, roomCode: 'SOLO' };

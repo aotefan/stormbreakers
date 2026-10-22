@@ -23,7 +23,8 @@ export const SUPPLY_DURATION = 15;
 export const SUPPLY_BOX_LIFETIME = 30;
 export const RESPAWN_SECONDS = 5;
 const COLORS = ['#d64d3f', '#f0b84b', '#54b7c9', '#9de06f', '#b986ff', '#f27fb2'];
-const NAMES = ['Tina', 'Azure', 'Harbor', 'Coral', 'Mistral', 'Lantern'];
+// The first seat is taken by the human captain; the other five are AI names.
+const NAMES = ['Captain', '奥特凡', '黄仁勋', '马斯克', '达里奥', 'TIBO'];
 
 function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
@@ -96,7 +97,7 @@ export function createGameState(options: CreateOptions): GameState {
     events: [],
   };
   const aiCount = options.aiCount ?? 3;
-  for (let i = 0; i < aiCount; i += 1) addBoat(state, { ai: true, name: `${NAMES[i]} AI` });
+  for (let i = 0; i < aiCount; i += 1) addBoat(state, { ai: true, name: NAMES[i % NAMES.length] });
   seedChests(state);
   return state;
 }

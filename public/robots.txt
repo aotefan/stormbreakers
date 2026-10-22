@@ -1,0 +1,6 @@
+User-agent: *
+Allow: /
+Disallow: /ws
+Disallow: /healthz
+
+Sitemap: https://stormbreakers.onrender.com/sitemap.xml

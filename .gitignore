@@ -3,3 +3,12 @@ dist/
 test-output/
 .DS_Store
 npm-debug.log*
+
+.env
+.env.*
+!.env.example
+.secrets/
+*.pem
+*.key
+coverage/
+playwright-report/

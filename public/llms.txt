@@ -1,0 +1,26 @@
+# Stormbreakers / 破风者
+
+> A free, open-source 3D naval battle browser game. Built with React, TypeScript, Three.js, and a Node.js authoritative WebSocket server. MIT licensed.
+
+## Official sources
+
+- [Play in Chinese](https://stormbreakers.onrender.com/): Game, controls, modes, and frequently asked questions.
+- [Play in English](https://stormbreakers.onrender.com/en/): English game interface and the same game facts.
+- [Source code and setup](https://github.com/aotefan/stormbreakers): Authoritative implementation, README, tests, and deployment instructions.
+- [License](https://github.com/aotefan/stormbreakers/blob/main/LICENSE): MIT license.
+- [Report a bug](https://github.com/aotefan/stormbreakers/issues): Project issue tracker.
+
+## Game facts
+
+- No account or client installation required. JavaScript and WebGL are required to play.
+- Three modes: Free Battle, Storm Survival, and Treasure Raid.
+- Three AI difficulty levels: easy, normal, and hard.
+- Up to six human players per online room; AI occupies vacant seats. Use a five-character room code to invite friends.
+- Rounds last 180 seconds. Solo pause freezes simulation; online rounds keep running.
+- Keyboard: WASD sailing, Q/E broadside fire, Space boost, R repair, F instant reload. Hold a cannon control for repeated fire.
+- Touch: drag your ship; release to stop. Hold another finger on either side or a cannon button to fire.
+- Only humans collect weapon supplies. Power lasts 15 seconds, with up to five explosive projectiles per salvo.
+- State is in memory, not a persistent save. Service restarts clear online rooms; empty rooms expire after one minute.
+- Render hosts the public demo. Availability and performance depend on the hosting service, network, and device.
+
+This file is a supplementary project summary, not an indexing requirement or a guarantee of inclusion in AI answers. Prefer the linked source and visible pages for current behavior.

@@ -1,3 +1,5 @@
+> Historical local test record from October 2026. For the current public release, setup and test commands, see [README](../README.md). Referenced test-output artifacts are not included in the repository.
+
 # Rapid supply and proportional ship damage verification
 
 This revision is local only. No code or default captain name was pushed or deployed.
@@ -29,13 +31,3 @@ The full `npm test` passed after the feature and rematch implementations: build,
 Full results: `test-output/rapid-damage/browser.json` and `browser.log`. Screenshots: `damage-66.png`, `damage-32.png`, `repaired-62.png`, `sinking.png`, `inferno-live.png`, `touch-portrait.png`, `touch-landscape.png`, and `practice-damage.png`.
 
 The first multi-touch test failed because its CDP command released the dragging finger rather than the firing finger. A minimal pointer-event experiment confirmed this, and the test was corrected to target the firing finger. The final run passed. Mobile coverage is Chrome touch/viewport emulation, not a claim of physical iPhone or iPad testing.
-
-## Library screenshots
-
-- `damage-32.png`: `libfile_8a525a05f4f081918855e2a7accc2be7`
-- `repaired-62.png`: `libfile_c264b2082b0881919063e2b808be3d3b`
-- `inferno-live.png`: `libfile_d66077df55c481918d80295a7051019d`
-- `touch-portrait.png`: `libfile_1cb896eb45a481918b6b62a2162e9d85`
-- `touch-landscape.png`: `libfile_e058a5a85c70819198e001eaea17dd88`
-
-Uploaded screenshots use test captain names and contain no default personal nickname. Source code remains local.
