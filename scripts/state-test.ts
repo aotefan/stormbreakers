@@ -20,7 +20,7 @@ let child: ChildProcess | undefined;
 
 async function main() {
   runRuleChecks();
-  child = spawn('npm', ['run', 'server'], {
+  child = spawn(process.execPath, ['--import', 'tsx', 'server/index.ts'], {
     cwd: process.cwd(),
     env: { ...process.env, PORT: String(port), NODE_ENV: 'test' },
     stdio: ['ignore', 'pipe', 'pipe'],

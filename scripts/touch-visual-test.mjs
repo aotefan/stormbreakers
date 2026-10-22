@@ -114,7 +114,7 @@ async function gesture(page, label, online) {
 async function main() {
   await mkdir(output,{recursive:true});
   if(!publicUrl) {
-    child=spawn('npm',['run','server'],{cwd:process.cwd(),env:{...process.env,PORT:'8795',NODE_ENV:'test'},stdio:'pipe'});
+    child=spawn(process.execPath,['--import','tsx','server/index.ts'],{cwd:process.cwd(),env:{...process.env,PORT:'8795',NODE_ENV:'test'},stdio:'pipe'});
     await waitFor(async()=>{try{return(await fetch(`${baseUrl}/healthz`)).ok;}catch{return false;}},'health');
   }
   browser=await chromium.launch();

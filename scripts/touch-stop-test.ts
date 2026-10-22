@@ -55,7 +55,7 @@ await test('touch prediction uses bounded movement and collisions without mutati
 });
 
 const port=8794;
-const child=spawn('npm',['run','server'],{cwd:process.cwd(),env:{...process.env,PORT:String(port),NODE_ENV:'production'},stdio:'pipe'});
+const child=spawn(process.execPath,['--import','tsx','server/index.ts'],{cwd:process.cwd(),env:{...process.env,PORT:String(port),NODE_ENV:'production'},stdio:'pipe'});
 const sockets:WebSocket[]=[];
 try {
   for(let i=0;i<100;i++) {

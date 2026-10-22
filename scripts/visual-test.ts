@@ -8,7 +8,7 @@ let child: ChildProcess | undefined;
 let browser: Browser | undefined;
 
 async function main() {
-  child = spawn('npm', ['run', 'server'], {
+  child = spawn(process.execPath, ['--import', 'tsx', 'server/index.ts'], {
     cwd: process.cwd(),
     env: { ...process.env, PORT: String(port), NODE_ENV: 'test' },
     stdio: ['ignore', 'pipe', 'pipe'],
